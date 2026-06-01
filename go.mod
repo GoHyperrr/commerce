@@ -2,7 +2,6 @@ module github.com/GoHyperrr/commerce
 
 go 1.25.5
 
-replace github.com/GoHyperrr/hyperrr => ../hyperrr
 
 require (
 	charm.land/bubbles/v2 v2.1.0
