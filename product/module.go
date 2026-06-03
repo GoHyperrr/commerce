@@ -10,6 +10,7 @@ import (
 // Module implements the registry.Module interface for the Product.
 type Module struct {
 	repo *Repository
+	deps *registry.Dependencies
 }
 
 func NewModule() *Module {
@@ -26,6 +27,7 @@ func (m *Module) ID() string {
 
 func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 	m.repo = NewRepository(deps.DB)
+	m.deps = deps
 
 	// Register Workflows
 	deps.Registry.Register(&workflow.Workflow{
@@ -66,13 +68,6 @@ func (m *Module) Repo() *Repository {
 	return m.repo
 }
 
-// Ensure Module implements registry.TUIProvider at compile-time.
-var _ registry.TUIProvider = (*Module)(nil)
 
-// TUIPages registers the product administration dashboard page.
-func (m *Module) TUIPages() []registry.TUIPage {
-	return []registry.TUIPage{
-		&productPage{},
-	}
-}
+
 

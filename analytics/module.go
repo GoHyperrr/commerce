@@ -9,6 +9,7 @@ import (
 
 // Module implements the registry.Module interface for Analytics.
 type Module struct {
+	deps *registry.Dependencies
 }
 
 func NewModule() *Module {
@@ -20,6 +21,7 @@ func (m *Module) ID() string {
 }
 
 func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
+	m.deps = deps
 	return nil
 }
 

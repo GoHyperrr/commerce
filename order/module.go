@@ -15,6 +15,7 @@ import (
 type Module struct {
 	repo *Repository
 	bus  eventbus.EventBus
+	deps *registry.Dependencies
 }
 
 func NewModule() *Module {
@@ -32,6 +33,7 @@ func (m *Module) ID() string {
 func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 	m.repo = NewRepository(deps.DB)
 	m.bus = deps.EventBus
+	m.deps = deps
 
 	// Register Fulfillment Saga
 	deps.Registry.Register(&workflow.Workflow{
@@ -166,13 +168,6 @@ func (m *Module) ReadResource(ctx context.Context, uri string) (string, error) {
 	return string(jsonBytes), nil
 }
 
-// Ensure Module implements registry.TUIProvider at compile-time.
-var _ registry.TUIProvider = (*Module)(nil)
 
-// TUIPages registers the order administration dashboard page.
-func (m *Module) TUIPages() []registry.TUIPage {
-	return []registry.TUIPage{
-		&ordersPage{},
-	}
-}
+
 

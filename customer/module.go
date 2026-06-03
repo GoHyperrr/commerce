@@ -12,9 +12,10 @@ import (
 
 // Module implements the registry.Module interface for Customer.
 type Module struct {
-	repo    *Repository
-	brain   *MLBrainV2
+	repo      *Repository
+	brain     *MLBrainV2
 	projector *ctxEngine.Projector
+	deps      *registry.Dependencies
 }
 
 func NewModule() *Module {
@@ -31,6 +32,7 @@ func (m *Module) ID() string {
 
 func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 	m.repo = NewRepository(deps.DB)
+	m.deps = deps
 
 	// Try to resolve Projector from registry if not explicitly set
 	if m.projector == nil {
@@ -140,13 +142,4 @@ func (m *Module) SetProjector(p *ctxEngine.Projector) {
 	m.brain = NewMLBrainV2(p)
 }
 
-// Ensure Module implements registry.TUIProvider at compile-time.
-var _ registry.TUIProvider = (*Module)(nil)
-
-// TUIPages registers the customer administration dashboard page.
-func (m *Module) TUIPages() []registry.TUIPage {
-	return []registry.TUIPage{
-		&customerPage{},
-	}
-}
 

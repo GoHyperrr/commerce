@@ -13,6 +13,7 @@ import (
 type Module struct {
 	db      *db.DB
 	prodMod *product.Module
+	deps    *registry.Dependencies
 }
 
 func NewModule() *Module {
@@ -25,6 +26,7 @@ func (m *Module) ID() string {
 
 func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 	m.db = deps.DB
+	m.deps = deps
 
 	// Resolve product module dependency dynamically from the registry
 	if prodModVal, ok := registry.Get("commerce.product"); ok {

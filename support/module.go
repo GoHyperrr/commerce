@@ -9,7 +9,8 @@ import (
 
 // Module implements the registry.Module interface for Support.
 type Module struct {
-	repo      *Repository
+	repo *Repository
+	deps *registry.Dependencies
 }
 
 func NewModule() *Module {
@@ -22,6 +23,7 @@ func (m *Module) ID() string {
 
 func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 	m.repo = NewRepository(deps.DB)
+	m.deps = deps
 
 	// Register Workflows
 	deps.Registry.Register(&workflow.Workflow{
