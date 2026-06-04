@@ -5,13 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/GoHyperrr/hyperrr/api/graph/model"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/google/uuid"
 )
-
-// Ensure Module implements registry.GraphQLProvider at compile time.
-var _ registry.GraphQLProvider = (*Module)(nil)
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
@@ -32,12 +27,15 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) AddItemToCart(ctx context.Context, cartID string, input model.AddItemInput) (*model.Cart, error) {
-	wf, err := m.deps.Registry.Get("cart.add")
-	if err != nil {
-		return nil, err
-	}
+type syncExecutor interface {
+	ExecuteSync(ctx context.Context, id string, workflowID string, input map[string]any) (map[string]any, error)
+}
 
+func (m *Module) AddItemToCart(ctx context.Context, cartID string, input AddItemInput) (*Cart, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
+	}
 	workflowInput := map[string]any{
 		"cart_id":    cartID,
 		"product_id": input.ProductID,
@@ -46,7 +44,7 @@ func (m *Module) AddItemToCart(ctx context.Context, cartID string, input model.A
 	}
 
 	execID := "add_item_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	results, err := executor.ExecuteSync(ctx, execID, "cart.add", workflowInput)
 	if err != nil {
 		return nil, err
 	}
@@ -66,13 +64,13 @@ func (m *Module) AddItemToCart(ctx context.Context, cartID string, input model.A
 		return nil, fmt.Errorf("invalid cart type in results: %w", err)
 	}
 
-	return mapCartToModel(&domainRes), nil
+	return &domainRes, nil
 }
 
-func (m *Module) RemoveItemFromCart(ctx context.Context, cartID string, itemID string) (*model.Cart, error) {
-	wf, err := m.deps.Registry.Get("cart.remove")
-	if err != nil {
-		return nil, err
+func (m *Module) RemoveItemFromCart(ctx context.Context, cartID string, itemID string) (*Cart, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	workflowInput := map[string]any{
@@ -81,7 +79,7 @@ func (m *Module) RemoveItemFromCart(ctx context.Context, cartID string, itemID s
 	}
 
 	execID := "remove_item_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	results, err := executor.ExecuteSync(ctx, execID, "cart.remove", workflowInput)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +99,13 @@ func (m *Module) RemoveItemFromCart(ctx context.Context, cartID string, itemID s
 		return nil, fmt.Errorf("invalid cart type in results: %w", err)
 	}
 
-	return mapCartToModel(&domainRes), nil
+	return &domainRes, nil
 }
 
 func (m *Module) CheckoutCart(ctx context.Context, cartID string) (bool, error) {
-	wf, err := m.deps.Registry.Get("cart.checkout")
-	if err != nil {
-		return false, err
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return false, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	workflowInput := map[string]any{
@@ -115,7 +113,7 @@ func (m *Module) CheckoutCart(ctx context.Context, cartID string) (bool, error) 
 	}
 
 	execID := "checkout_" + uuid.New().String()
-	_, err = m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	_, err := executor.ExecuteSync(ctx, execID, "cart.checkout", workflowInput)
 	if err != nil {
 		return false, err
 	}
@@ -123,15 +121,11 @@ func (m *Module) CheckoutCart(ctx context.Context, cartID string) (bool, error) 
 	return true, nil
 }
 
-func (m *Module) GetCart(ctx context.Context, id string) (*model.Cart, error) {
-	c, err := m.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return mapCartToModel(c), nil
+func (m *Module) GetCart(ctx context.Context, id string) (*Cart, error) {
+	return m.repo.GetByID(ctx, id)
 }
 
-func (m *Module) GetActiveCart(ctx context.Context, customerID string) (*model.Cart, error) {
+func (m *Module) GetActiveCart(ctx context.Context, customerID string) (*Cart, error) {
 	c, err := m.repo.GetActiveByCustomerID(ctx, customerID)
 	if err != nil {
 		// If not found, create a new one
@@ -143,26 +137,9 @@ func (m *Module) GetActiveCart(ctx context.Context, customerID string) (*model.C
 		if err := m.repo.Save(ctx, newCart); err != nil {
 			return nil, err
 		}
-		return mapCartToModel(newCart), nil
+		return newCart, nil
 	}
-	return mapCartToModel(c), nil
-}
-
-func mapCartToModel(c *Cart) *model.Cart {
-	res := &model.Cart{
-		ID:         c.ID,
-		CustomerID: c.CustomerID,
-		Status:     string(c.Status),
-	}
-	for _, item := range c.Items {
-		res.Items = append(res.Items, &model.CartItem{
-			ID:        item.ID,
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
-			Price:     item.Price,
-		})
-	}
-	return res
+	return c, nil
 }
 
 func decodeResult(src any, dest any) error {

@@ -48,9 +48,8 @@ func TestFinanceWorkflow(t *testing.T) {
 	runner := workflow.NewRunner(bus, nil, nil)
 
 	mod := NewModule()
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	db.Register(mod.Models()...)
-	for name, h := range mod.Handlers() { runner.RegisterTask(name, h) }
 	database.AutoMigrateAll()
 
 	t.Run("Process Payment Success - float64", func(t *testing.T) {
@@ -157,7 +156,7 @@ func TestFinanceWorkflow(t *testing.T) {
 		badMod := NewModule()
 		badDB, _ := db.Connect(&config.Config{DBDriver: "sqlite", DBDSN: ":memory:"})
 		sqlDB, _ := badDB.DB.DB()
-		badMod.repo = NewRepository(badDB)
+		badMod.repo = NewRepository(badDB.DB)
 		sqlDB.Close()
 		o := &mockOrder{ID: "ord_bad", TotalPrice: 1.0}
 		_, err = badMod.ProcessPayment(context.Background(), map[string]any{"input": map[string]any{}, "order.create": map[string]any{"order": o}})
@@ -183,8 +182,8 @@ func TestFinanceRepository(t *testing.T) {
 	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
 	database, _ := db.Connect(cfg)
 	
-	repo := NewRepository(database)
-	database.AutoMigrate(&Payment{})
+	repo := NewRepository(database.DB)
+	database.DB.AutoMigrate(&Payment{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		p := &Payment{ID: "pay1", OrderID: "ord1", Amount: 15.0, Status: PaymentSuccess}

@@ -24,7 +24,6 @@ func TestCustomerWorkflow(t *testing.T) {
 	database, _ := db.Connect(cfg)
 	bus := eventbus.NewInMemBus()
 	runner := workflow.NewRunner(bus, nil, nil)
-	registryStore := workflow.NewRegistry()
 	projector := ctxEngine.NewProjector(bus)
 	projector.Start(context.Background())
 
@@ -33,18 +32,14 @@ func TestCustomerWorkflow(t *testing.T) {
 		DB:       database,
 		EventBus: bus,
 		Runner:   runner,
-		Registry: registryStore,
 	}
 
-	if err := mod.Init(context.Background(), deps); err != nil {
+	if err := mod.Init(context.Background(), registry.NewRuntime(deps)); err != nil {
 		t.Fatalf("failed to init module: %v", err)
 	}
 	mod.SetProjector(projector)
 
 	db.Register(mod.Models()...)
-	for name, handler := range mod.Handlers() {
-		runner.RegisterTask(name, handler)
-	}
 	database.AutoMigrateAll()
 
 	t.Run("Segmentation Workflow", func(t *testing.T) {
@@ -56,8 +51,9 @@ func TestCustomerWorkflow(t *testing.T) {
 		for i := 0; i < 6; i++ {
 			wfID := fmt.Sprintf("wf_%d", i)
 			bus.Publish(context.Background(), eventbus.Event{
-				ID:   wfID + "_start",
-				Type: "workflow.started",
+				ID:        wfID + "_start",
+				Namespace: "workflow",
+				Type:      "started",
 				Payload: map[string]any{
 					"name":    "fulfillment.v1",
 					"id":      wfID,
@@ -65,8 +61,9 @@ func TestCustomerWorkflow(t *testing.T) {
 				},
 			})
 			bus.Publish(context.Background(), eventbus.Event{
-				ID:   wfID + "_end",
-				Type: "workflow.completed",
+				ID:        wfID + "_end",
+				Namespace: "workflow",
+				Type:      "completed",
 				Payload: map[string]any{
 					"name": "fulfillment.v1",
 					"id":   wfID,
@@ -74,22 +71,14 @@ func TestCustomerWorkflow(t *testing.T) {
 			})
 		}
 		// Give projector a moment to process events
-		time.Sleep(100 * time.Millisecond)
-
-		wf := &workflow.Workflow{
-			Name: "customer.segmentation",
-			Steps: []workflow.Step{
-				{ID: "customer.calculate_persona", Uses: "customer.calculate_persona"},
-				{ID: "customer.update_persona", Uses: "customer.update_persona", DependsOn: []string{"customer.calculate_persona"}},
-			},
-		}
+		time.Sleep(150 * time.Millisecond)
 
 		input := map[string]any{
 			"customer_id": "c1",
 			"order_total": 1500.0,
 		}
 
-		_, err := runner.Execute(context.Background(), "seg_1", wf, input)
+		_, err := runner.ExecuteSync(context.Background(), "seg_1", "customer.segmentation", input)
 		if err != nil {
 			t.Fatalf("workflow failed: %v", err)
 		}
@@ -121,10 +110,9 @@ func TestCustomerWorkflow(t *testing.T) {
 		database, _ := db.Connect(cfg)
 		bus := eventbus.NewInMemBus()
 		runner := workflow.NewRunner(bus, nil, nil)
-		registryStore := workflow.NewRegistry()
 
 		mod := NewModule()
-		mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 		db.Register(mod.Models()...)
 
 		database.AutoMigrateAll()
@@ -153,8 +141,9 @@ func TestCustomerWorkflow(t *testing.T) {
 		
 		// 5. identity.user_created - Missing actor_id (should skip gracefully)
 		bus.Publish(context.Background(), eventbus.Event{
-			Type: "identity.user_created",
-			Payload: map[string]any{"user_id": "u_no_actor", "email": "test@test.com"},
+			Namespace: "identity",
+			Type:      "user_created",
+			Payload:   map[string]any{"user_id": "u_no_actor", "email": "test@test.com"},
 		})
 		time.Sleep(50 * time.Millisecond)
 		_, err = mod.Repo().GetByUserID(context.Background(), "u_no_actor")
@@ -171,8 +160,9 @@ func TestCustomerWorkflow(t *testing.T) {
 
 		// 7. order.completed - Missing customer_id
 		bus.Publish(context.Background(), eventbus.Event{
-			Type: "order.completed",
-			Payload: map[string]any{"wrong": "data"},
+			Namespace: "order",
+			Type:      "completed",
+			Payload:   map[string]any{"wrong": "data"},
 		})
 		// Should just skip gracefully
 
@@ -208,7 +198,7 @@ func TestCustomerWorkflow(t *testing.T) {
 		sqlDB.Close()
 
 		originalRepo := mod.repo
-		mod.repo = NewRepository(badDB)
+		mod.repo = NewRepository(badDB.DB)
 		_, err = mod.UpdateCustomerDetails(context.Background(), updateInput)
 		if err == nil { t.Error("expected error for failed save in UpdateCustomerDetails") }
 		
@@ -224,7 +214,7 @@ func TestCustomerWorkflow(t *testing.T) {
 		if err == nil { t.Error("expected error for non-existent customer in UpdatePersona") }
 
 		// 12. UpdatePersona - Save Failure
-		mod.repo = NewRepository(badDB)
+		mod.repo = NewRepository(badDB.DB)
 		personaInputValid := map[string]any{
 			"calculate": map[string]any{
 				"customer_id": "c_user",
@@ -265,7 +255,8 @@ func TestCustomerWorkflow(t *testing.T) {
 
 		// 15. identity.user_created - Success
 		bus.Publish(context.Background(), eventbus.Event{
-			Type: "identity.user_created",
+			Namespace: "identity",
+			Type:      "user_created",
 			Payload: map[string]any{
 				"actor_id": "u_new",
 				"user_id":  "u_new_id",
@@ -281,8 +272,9 @@ func TestCustomerWorkflow(t *testing.T) {
 
 		// 16. order.completed - Success (Triggers background workflow)
 		bus.Publish(context.Background(), eventbus.Event{
-			Type: "order.completed",
-			Payload: map[string]any{"customer_id": "c_user"},
+			Namespace: "order",
+			Type:      "completed",
+			Payload:   map[string]any{"customer_id": "c_user"},
 		})
 		time.Sleep(50 * time.Millisecond)
 		// No direct way to check background execution easily without mocking runner,

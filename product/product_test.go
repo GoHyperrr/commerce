@@ -10,6 +10,7 @@ import (
 	"github.com/GoHyperrr/hyperrr/pkg/db"
 	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
 	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
 func TestProductWorkflow(t *testing.T) {
@@ -24,32 +25,22 @@ func TestProductWorkflow(t *testing.T) {
 	database, _ := db.Connect(cfg)
 	bus := eventbus.NewInMemBus()
 	runner := workflow.NewRunner(bus, nil, nil)
-	registryStore := workflow.NewRegistry()
 
 	mod := NewModule()
 	deps := &registry.Dependencies{
 		DB:       database,
 		EventBus: bus,
 		Runner:   runner,
-		Registry: registryStore,
 	}
 
-	if err := mod.Init(context.Background(), deps); err != nil {
+	if err := mod.Init(context.Background(), registry.NewRuntime(deps)); err != nil {
 		t.Fatalf("failed to init module: %v", err)
 	}
 
 	db.Register(mod.Models()...)
-	for name, handler := range mod.Handlers() {
-		runner.RegisterTask(name, handler)
-	}
 	database.AutoMigrateAll()
 
 	t.Run("Create Product Workflow", func(t *testing.T) {
-		wf, err := deps.Registry.Get("product.create")
-		if err != nil {
-			t.Fatalf("failed to get workflow: %v", err)
-		}
-		
 		input := map[string]any{
 			"id":          "p1",
 			"name":        "Test Product",
@@ -57,7 +48,7 @@ func TestProductWorkflow(t *testing.T) {
 			"price":       100.0,
 		}
 
-		res, err := runner.Execute(context.Background(), "create_1", wf, input)
+		res, err := runner.ExecuteSync(context.Background(), "create_1", "product.create", input)
 		if err != nil {
 			t.Fatalf("workflow failed: %v", err)
 		}
@@ -70,18 +61,19 @@ func TestProductWorkflow(t *testing.T) {
 	})
 
 	t.Run("Invalid Product", func(t *testing.T) {
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{
-				{ID: "v1", Uses: "product.validate_product"},
-			},
+		wf := mdk.Workflow{
+			ID:    "test-invalid-wf",
+			Name:  "Test Invalid Product",
+			Steps: []mdk.Step{{ID: "v1", Uses: "product.validate_product"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{
 			"name":  "",
 			"price": -10.0,
 		}
 
-		_, err := runner.Execute(context.Background(), "create_invalid", wf, input)
+		_, err := runner.ExecuteSync(context.Background(), "create_invalid", "test-invalid-wf", input)
 		if err == nil {
 			t.Error("expected validation error")
 		}
@@ -94,10 +86,9 @@ func TestProductWorkflow(t *testing.T) {
 		database, _ := db.Connect(cfg)
 		bus := eventbus.NewInMemBus()
 		runner := workflow.NewRunner(bus, nil, nil)
-		registryStore := workflow.NewRegistry()
 
 		mod := NewModule()
-		mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 		db.Register(mod.Models()...)
 
 		database.AutoMigrateAll()
@@ -134,7 +125,7 @@ func TestProductWorkflow(t *testing.T) {
 		sqlDB, _ := badDB.DB.DB()
 		sqlDB.Close()
 		
-		mod.repo = NewRepository(badDB)
+		mod.repo = NewRepository(badDB.DB)
 		failInput := map[string]any{
 			"validate": map[string]any{
 				"id": "p_fail", "name": "Fail", "description": "", "price": 10.0,
@@ -144,7 +135,7 @@ func TestProductWorkflow(t *testing.T) {
 		if err == nil { t.Error("expected error for failed save in PersistProduct") }
 
 		// 6. UpdateProductDetails - Success (All fields)
-		mod.repo = NewRepository(database) // Ensure we use the good DB
+		mod.repo = NewRepository(database.DB) // Ensure we use the good DB
 		p := &Product{ID: "p_update", Name: "Old Name", Description: "Old Desc", Price: 50.0}
 		database.Save(p)
 		updateAllInput := map[string]any{
@@ -165,10 +156,10 @@ func TestProductWorkflow(t *testing.T) {
 		}
 
 		// 7. UpdateProductDetails - Save Failure
-		mod.repo = NewRepository(badDB)
+		mod.repo = NewRepository(badDB.DB)
 		_, err = mod.UpdateProductDetails(context.Background(), updateAllInput)
 		if err == nil { t.Error("expected error for failed save in UpdateProductDetails") }
-		mod.repo = NewRepository(database) // Restore to good DB
+		mod.repo = NewRepository(database.DB) // Restore to good DB
 
 		// 8. UpdateProductDetails - Int price
 		updateIntInput := map[string]any{

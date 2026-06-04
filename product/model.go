@@ -17,3 +17,19 @@ type Product struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 }
+
+type CreateProductInput struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Price       float64 `json:"price"`
+	Currency    *string `json:"currency,omitempty"`
+}
+
+type UpdateProductInput struct {
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Price       *float64 `json:"price,omitempty"`
+	Currency    *string  `json:"currency,omitempty"`
+}
+

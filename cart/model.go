@@ -36,3 +36,10 @@ type CartItem struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
+
+type AddItemInput struct {
+	ProductID string  `json:"productId"`
+	Quantity  int     `json:"quantity"`
+	Price     float64 `json:"price"`
+}
+

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/GoHyperrr/hyperrr/pkg/utils"
+	"github.com/GoHyperrr/mdk"
 )
 
 // CalculatePersona determines a customer's persona using the MLBrainV2.
@@ -19,7 +19,7 @@ func (m *Module) CalculatePersona(ctx context.Context, input any) (any, error) {
 		return nil, fmt.Errorf("missing workflow input")
 	}
 
-	customerID := utils.GetString(workflowInput, "customer_id")
+	customerID := getString(workflowInput, "customer_id")
 	if customerID == "" {
 		return nil, fmt.Errorf("customer_id is required")
 	}
@@ -55,8 +55,8 @@ func (m *Module) UpdatePersona(ctx context.Context, input any) (any, error) {
 		return nil, fmt.Errorf("missing persona data")
 	}
 
-	customerID := utils.GetString(personaData, "customer_id")
-	persona := utils.GetString(personaData, "persona")
+	customerID := getString(personaData, "customer_id")
+	persona := getString(personaData, "persona")
 
 	c, err := m.repo.GetByID(ctx, customerID)
 	if err != nil {
@@ -83,16 +83,16 @@ func (m *Module) UpdateCustomerDetails(ctx context.Context, input any) (any, err
 		return nil, fmt.Errorf("missing workflow input")
 	}
 
-	customerID := utils.GetString(workflowInput, "id")
+	customerID := getString(workflowInput, "id")
 	c, err := m.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return nil, fmt.Errorf("customer not found: %w", err)
 	}
 
-	if name := utils.GetString(workflowInput, "name"); name != "" {
+	if name := getString(workflowInput, "name"); name != "" {
 		c.Name = name
 	}
-	if email := utils.GetString(workflowInput, "email"); email != "" {
+	if email := getString(workflowInput, "email"); email != "" {
 		c.Email = email
 	}
 
@@ -101,4 +101,47 @@ func (m *Module) UpdateCustomerDetails(ctx context.Context, input any) (any, err
 	}
 
 	return map[string]any{"customer": c}, nil
+}
+
+// CalculatePersonaStep wraps CalculatePersona to mdk.StepHandler.
+func (m *Module) CalculatePersonaStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.CalculatePersona(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// UpdatePersonaStep wraps UpdatePersona to mdk.StepHandler.
+func (m *Module) UpdatePersonaStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.UpdatePersona(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// UpdateCustomerDetailsStep wraps UpdateCustomerDetails to mdk.StepHandler.
+func (m *Module) UpdateCustomerDetailsStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.UpdateCustomerDetails(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+func getString(m map[string]any, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }

@@ -3,13 +3,12 @@ package analytics
 import (
 	"context"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
-// Module implements the registry.Module interface for Analytics.
+// Module implements the mdk.Module interface for Analytics.
 type Module struct {
-	deps *registry.Dependencies
+	rt mdk.Runtime
 }
 
 func NewModule() *Module {
@@ -20,8 +19,8 @@ func (m *Module) ID() string {
 	return "commerce.analytics"
 }
 
-func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
-	m.deps = deps
+func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
+	m.rt = rt
 	return nil
 }
 
@@ -29,7 +28,7 @@ func (m *Module) Models() []any {
 	return nil
 }
 
-func (m *Module) Handlers() map[string]workflow.TaskHandler {
+func (m *Module) Routes() []mdk.Route {
 	return nil
 }
 
@@ -39,4 +38,10 @@ func (m *Module) Shutdown(ctx context.Context) error {
 
 func (m *Module) Repo() any {
 	return nil
+}
+
+func init() {
+	mdk.Register(func() mdk.Module {
+		return NewModule()
+	})
 }

@@ -4,10 +4,7 @@ go 1.25.5
 
 
 require (
-	charm.land/bubbles/v2 v2.1.0
-	charm.land/bubbletea/v2 v2.0.6
-	charm.land/lipgloss/v2 v2.0.3
-	github.com/GoHyperrr/hyperrr v0.0.0
+	github.com/GoHyperrr/mdk v0.1.0
 	github.com/google/uuid v1.6.0
 	gorm.io/gorm v1.31.1
 )

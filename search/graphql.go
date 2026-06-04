@@ -6,13 +6,8 @@ import (
 	"fmt"
 
 	"github.com/GoHyperrr/commerce/product"
-	"github.com/GoHyperrr/hyperrr/api/graph/model"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/google/uuid"
 )
-
-// Ensure Module implements registry.GraphQLProvider at compile time.
-var _ registry.GraphQLProvider = (*Module)(nil)
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
@@ -28,10 +23,14 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) SearchProductsResolver(ctx context.Context, query string, limit *int) ([]*model.Product, error) {
-	wf, err := m.deps.Registry.Get("search.products")
-	if err != nil {
-		return nil, err
+type syncExecutor interface {
+	ExecuteSync(ctx context.Context, id string, workflowID string, input map[string]any) (map[string]any, error)
+}
+
+func (m *Module) SearchProductsResolver(ctx context.Context, query string, limit *int) ([]*product.Product, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	lim := 10.0
@@ -45,7 +44,7 @@ func (m *Module) SearchProductsResolver(ctx context.Context, query string, limit
 	}
 
 	execID := "search_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	results, err := executor.ExecuteSync(ctx, execID, "search.products", workflowInput)
 	if err != nil {
 		return nil, err
 	}
@@ -55,21 +54,7 @@ func (m *Module) SearchProductsResolver(ctx context.Context, query string, limit
 		return nil, fmt.Errorf("failed to retrieve search results from workflow: %w", err)
 	}
 
-	res := make([]*model.Product, 0, len(prodsRaw))
-	for _, p := range prodsRaw {
-		res = append(res, mapProductToModel(p))
-	}
-	return res, nil
-}
-
-func mapProductToModel(p *product.Product) *model.Product {
-	return &model.Product{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: &p.Description,
-		Price:       p.Price,
-		Currency:    p.Currency,
-	}
+	return prodsRaw, nil
 }
 
 func decodeResult(src any, dest any) error {

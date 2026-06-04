@@ -28,12 +28,10 @@ func TestMarketingModule(t *testing.T) {
 	database, _ := db.Connect(cfg)
 	bus := eventbus.NewInMemBus()
 	runner := workflow.NewRunner(bus, nil, nil)
-	registryStore := workflow.NewRegistry()
 
 	mod := NewModule()
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	db.Register(mod.Models()...)
-	for name, h := range mod.Handlers() { runner.RegisterTask(name, h) }
 	database.AutoMigrateAll()
 
 	t.Run("Validate Coupon", func(t *testing.T) {
@@ -136,8 +134,8 @@ func TestMarketingRepository(t *testing.T) {
 	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
 	database, _ := db.Connect(cfg)
 	
-	repo := NewRepository(database)
-	database.AutoMigrate(&Coupon{}, &LoyaltyPoints{})
+	repo := NewRepository(database.DB)
+	database.DB.AutoMigrate(&Coupon{}, &LoyaltyPoints{})
 
 	t.Run("Coupon CRUD", func(t *testing.T) {
 		c := &Coupon{ID: "c_repo", Code: "REPO1", DiscountPercentage: 5.0, Active: true}

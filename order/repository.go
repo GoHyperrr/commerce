@@ -2,16 +2,17 @@ package order
 
 import (
 	"context"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
+
+	"gorm.io/gorm"
 )
 
 // Repository handles data access for orders.
 type Repository struct {
-	db *db.DB
+	db *gorm.DB
 }
 
 // NewRepository creates a new Repository.
-func NewRepository(database *db.DB) *Repository {
+func NewRepository(database *gorm.DB) *Repository {
 	return &Repository{db: database}
 }
 

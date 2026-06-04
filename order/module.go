@@ -6,38 +6,33 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
-// Module implements the registry.Module interface for Order.
+// Module implements the mdk.Module interface for Order.
 type Module struct {
 	repo *Repository
-	bus  eventbus.EventBus
-	deps *registry.Dependencies
+	bus  mdk.EventBus
+	rt   mdk.Runtime
 }
 
 func NewModule() *Module {
 	return &Module{}
 }
 
-func init() {
-	registry.Register(NewModule())
-}
-
 func (m *Module) ID() string {
 	return "commerce.order"
 }
 
-func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
-	m.repo = NewRepository(deps.DB)
-	m.bus = deps.EventBus
-	m.deps = deps
+func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
+	m.repo = NewRepository(rt.DB())
+	m.bus = rt.Bus()
+	m.rt = rt
 
 	// Register Fulfillment Saga
-	deps.Registry.Register(&workflow.Workflow{
-		Name:        "fulfillment.v1",
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "fulfillment.v1",
+		Name:        "Fulfillment Workflow",
 		Description: "Orchestrates the full order lifecycle including inventory reservation, payment processing, and shipment creation.",
 		ExposeToAI:  true,
 		InputSchema: map[string]any{
@@ -57,23 +52,23 @@ func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 			},
 			"required": []string{"customer_id", "items"},
 		},
-		Steps: []workflow.Step{
+		Steps: []mdk.Step{
 			{
 				ID:   "fulfillment.reserve_inventory",
 				Uses: "fulfillment.reserve_inventory",
-				Saga: &workflow.Saga{Uses: "fulfillment.release_inventory"},
+				Saga: &mdk.Saga{Uses: "fulfillment.release_inventory"},
 			},
 			{
 				ID:        TaskCreateOrder,
 				Uses:      TaskCreateOrder,
-				Saga:      &workflow.Saga{Uses: TaskCompensatePayment},
+				Saga:      &mdk.Saga{Uses: TaskCompensatePayment},
 				DependsOn: []string{"fulfillment.reserve_inventory"},
 			},
 			{
 				ID:        "finance.process_payment",
 				Uses:      "finance.process_payment",
 				DependsOn: []string{TaskCreateOrder},
-				Saga:      &workflow.Saga{Uses: "finance.compensate_payment"},
+				Saga:      &mdk.Saga{Uses: "finance.compensate_payment"},
 			},
 			{
 				ID:        "fulfillment.create_shipment",
@@ -93,6 +88,11 @@ func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 		},
 	})
 
+	// Register Handlers
+	_ = rt.Workflows().RegisterHandler(TaskCreateOrder, m.CreateOrderStep)
+	_ = rt.Workflows().RegisterHandler(TaskFinalizeOrder, m.FinalizeOrderStep)
+	_ = rt.Workflows().RegisterHandler(TaskCompensatePayment, m.CompensatePaymentStep)
+
 	return nil
 }
 
@@ -104,19 +104,15 @@ func (m *Module) Models() []any {
 	return []any{&Order{}, &OrderItem{}}
 }
 
-func (m *Module) Handlers() map[string]workflow.TaskHandler {
-	return map[string]workflow.TaskHandler{
-		TaskCreateOrder:       m.CreateOrder,
-		TaskFinalizeOrder:     m.FinalizeOrder,
-		TaskCompensatePayment: m.CompensatePayment,
-	}
+func (m *Module) Routes() []mdk.Route {
+	return nil
 }
 
 func (m *Module) Repo() *Repository {
 	return m.repo
 }
 
-func (m *Module) ListResources(ctx context.Context) ([]registry.MCPResource, error) {
+func (m *Module) ListResources(ctx context.Context) ([]mdk.MCPResource, error) {
 	if m.repo == nil {
 		return nil, nil
 	}
@@ -125,9 +121,9 @@ func (m *Module) ListResources(ctx context.Context) ([]registry.MCPResource, err
 		return nil, err
 	}
 
-	var res []registry.MCPResource
+	var res []mdk.MCPResource
 	for _, o := range orders {
-		res = append(res, registry.MCPResource{
+		res = append(res, mdk.MCPResource{
 			URI:         "order://" + o.ID + "/status",
 			Name:        "Order Status: " + o.ID,
 			Description: "Real-time fulfillment status of order " + o.ID,
@@ -168,6 +164,8 @@ func (m *Module) ReadResource(ctx context.Context, uri string) (string, error) {
 	return string(jsonBytes), nil
 }
 
-
-
-
+func init() {
+	mdk.Register(func() mdk.Module {
+		return NewModule()
+	})
+}

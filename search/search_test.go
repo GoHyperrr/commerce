@@ -11,6 +11,7 @@ import (
 	"github.com/GoHyperrr/hyperrr/pkg/db"
 	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
 	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
 func TestSearchModule(t *testing.T) {
@@ -21,18 +22,16 @@ func TestSearchModule(t *testing.T) {
 	database, _ := db.Connect(cfg)
 	bus := eventbus.NewInMemBus()
 	runner := workflow.NewRunner(bus, nil, nil)
-	registryStore := workflow.NewRegistry()
 
 	// Mock Product module
 	prodMod := product.NewModule()
-	prodMod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+	prodMod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	db.Register(prodMod.Models()...)
 	
 	mod := NewModule()
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	mod.SetProductModule(prodMod)
 	db.Register(mod.Models()...)
-	for name, h := range mod.Handlers() { runner.RegisterTask(name, h) }
 	database.AutoMigrateAll()
 
 	// Seed products
@@ -40,12 +39,15 @@ func TestSearchModule(t *testing.T) {
 	prodMod.Repo().Save(context.Background(), &product.Product{ID: "p2", Name: "Rust Crab", Price: 15.0})
 
 	t.Run("Search Success", func(t *testing.T) {
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{{ID: "search", Uses: "search.product_catalog"}},
+		wf := mdk.Workflow{
+			ID:    "test-search-wf",
+			Name:  "Test Search Products",
+			Steps: []mdk.Step{{ID: "search_step", Uses: "search.product_catalog"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{"query": "Go", "limit": 1.0}
-		res, err := runner.Execute(context.Background(), "s1", wf, input)
+		res, err := runner.ExecuteSync(context.Background(), "s1", "test-search-wf", input)
 		if err != nil {
 			t.Fatalf("workflow failed: %v", err)
 		}
@@ -64,7 +66,9 @@ func TestSearchModule(t *testing.T) {
 		if err == nil { t.Error("expected error for missing workflow input") }
 
 		mNoProd := NewModule()
-		mNoProd.Init(context.Background(), &registry.Dependencies{DB: database, Registry: workflow.NewRegistry()})
+		mNoProdBus := eventbus.NewInMemBus()
+		mNoProdRunner := workflow.NewRunner(mNoProdBus, nil, nil)
+		mNoProd.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: mNoProdBus, Runner: mNoProdRunner}))
 		_, err = mNoProd.SearchProducts(context.Background(), map[string]any{"input": map[string]any{"query": "x"}})
 		if err == nil { t.Error("expected error for missing product module") }
 	})

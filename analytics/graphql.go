@@ -6,14 +6,8 @@ import (
 	"time"
 
 	"github.com/GoHyperrr/commerce/order"
-	"github.com/GoHyperrr/hyperrr/api/graph/model"
-	ctxEngine "github.com/GoHyperrr/hyperrr/pkg/ctxengine"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
+	"github.com/GoHyperrr/mdk"
 )
-
-// Ensure Module implements registry.GraphQLProvider at compile time.
-var _ registry.GraphQLProvider = (*Module)(nil)
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
@@ -30,16 +24,16 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) GetSystemStats(ctx context.Context) (*model.SystemStats, error) {
-	mod, ok := registry.Get("core.context")
+func (m *Module) GetSystemStats(ctx context.Context) (*SystemStats, error) {
+	mod, ok := m.rt.Module("core.context")
 	if !ok {
 		return nil, fmt.Errorf("core.context module not found")
 	}
-	ctxMod, ok := mod.(*ctxEngine.Module)
+	prov, ok := mod.(mdk.ProjectorProvider)
 	if !ok {
 		return nil, fmt.Errorf("invalid type for core.context module")
 	}
-	projector := ctxMod.Projector()
+	projector := prov.Projector()
 	if projector == nil {
 		return nil, fmt.Errorf("analytics module not initialized with projector")
 	}
@@ -48,7 +42,7 @@ func (m *Module) GetSystemStats(ctx context.Context) (*model.SystemStats, error)
 
 	total := len(lineages)
 	if total == 0 {
-		return &model.SystemStats{}, nil
+		return &SystemStats{}, nil
 	}
 
 	success := 0
@@ -56,9 +50,9 @@ func (m *Module) GetSystemStats(ctx context.Context) (*model.SystemStats, error)
 	var totalDuration time.Duration
 
 	for _, l := range lineages {
-		if l.GetState() == workflow.StateCompleted {
+		if l.GetState() == "COMPLETED" {
 			success++
-		} else if l.GetState() == workflow.StateFailed {
+		} else if l.GetState() == "FAILED" {
 			failed++
 		}
 		if l.GetEndedAt() != nil && !l.GetEndedAt().IsZero() {
@@ -66,7 +60,7 @@ func (m *Module) GetSystemStats(ctx context.Context) (*model.SystemStats, error)
 		}
 	}
 
-	return &model.SystemStats{
+	return &SystemStats{
 		TotalWorkflows:     total,
 		SuccessRate:        (float64(success) / float64(total)) * 100,
 		FailureRate:        (float64(failed) / float64(total)) * 100,
@@ -74,16 +68,16 @@ func (m *Module) GetSystemStats(ctx context.Context) (*model.SystemStats, error)
 	}, nil
 }
 
-func (m *Module) GetSalesStats(ctx context.Context) (*model.SalesStats, error) {
-	mod, ok := registry.Get("core.context")
+func (m *Module) GetSalesStats(ctx context.Context) (*SalesStats, error) {
+	mod, ok := m.rt.Module("core.context")
 	if !ok {
 		return nil, fmt.Errorf("core.context module not found")
 	}
-	ctxMod, ok := mod.(*ctxEngine.Module)
+	prov, ok := mod.(mdk.ProjectorProvider)
 	if !ok {
 		return nil, fmt.Errorf("invalid type for core.context module")
 	}
-	projector := ctxMod.Projector()
+	projector := prov.Projector()
 	if projector == nil {
 		return nil, fmt.Errorf("analytics module not initialized with projector")
 	}
@@ -96,22 +90,17 @@ func (m *Module) GetSalesStats(ctx context.Context) (*model.SalesStats, error) {
 
 	for _, l := range lineages {
 		// Look for successful fulfillment workflows
-		if l.GetName() == "fulfillment.v1" && l.GetState() == workflow.StateCompleted {
+		if l.GetName() == "fulfillment.v1" && l.GetState() == "COMPLETED" {
 			// Extract revenue from lineage events
-			conc, ok := l.(*ctxEngine.Lineage)
-			if ok {
-				for _, ev := range conc.Events {
-					if ev.Type == "order.paid" {
-						if p, ok := ev.Payload.(map[string]any); ok {
-							if total, ok := p["total_price"].(float64); ok {
-								totalRevenue += total
-								orderCount++
-								if id, ok := p["order_id"].(string); ok {
-									orderIDs[id] = true
-								}
-								break
-							}
+			for _, ev := range l.GetEvents() {
+				if ev.Type == "order.paid" {
+					if total, ok := ev.Payload["total_price"].(float64); ok {
+						totalRevenue += total
+						orderCount++
+						if id, ok := ev.Payload["order_id"].(string); ok {
+							orderIDs[id] = true
 						}
+						break
 					}
 				}
 			}
@@ -119,7 +108,7 @@ func (m *Module) GetSalesStats(ctx context.Context) (*model.SalesStats, error) {
 	}
 
 	// Secondary check: Database reconciliation
-	ordModRaw, ok := registry.Get("commerce.order")
+	ordModRaw, ok := m.rt.Module("commerce.order")
 	if ok {
 		if ordMod, ok := ordModRaw.(*order.Module); ok {
 			orders, err := ordMod.Repo().List(ctx)
@@ -140,7 +129,7 @@ func (m *Module) GetSalesStats(ctx context.Context) (*model.SalesStats, error) {
 		avg = totalRevenue / float64(orderCount)
 	}
 
-	return &model.SalesStats{
+	return &SalesStats{
 		TotalRevenue:  totalRevenue,
 		OrderCount:    orderCount,
 		AvgOrderValue: avg,

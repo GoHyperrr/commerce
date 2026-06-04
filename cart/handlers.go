@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
 )
 
 // AddItem handles adding an item to a cart via workflow.
@@ -129,6 +129,41 @@ func (m *Module) Checkout(ctx context.Context, input any) (any, error) {
 		return nil, fmt.Errorf("failed to complete cart: %w", err)
 	}
 
-	logger.Info("Cart checkout completed", "cart_id", cartID)
+	m.rt.Logger().Info("Cart checkout completed", "cart_id", cartID)
 	return true, nil
+}
+
+// AddItemStep wraps AddItem to conform to mdk.StepHandler.
+func (m *Module) AddItemStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.AddItem(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, ok := res.(map[string]any)
+	if !ok {
+		return mdk.StepResult{Err: fmt.Errorf("invalid result format from AddItem")}
+	}
+	return mdk.StepResult{Output: resMap}
+}
+
+// RemoveItemStep wraps RemoveItem to conform to mdk.StepHandler.
+func (m *Module) RemoveItemStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.RemoveItem(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, ok := res.(map[string]any)
+	if !ok {
+		return mdk.StepResult{Err: fmt.Errorf("invalid result format from RemoveItem")}
+	}
+	return mdk.StepResult{Output: resMap}
+}
+
+// CheckoutStep wraps Checkout to conform to mdk.StepHandler.
+func (m *Module) CheckoutStep(sCtx mdk.StepContext) mdk.StepResult {
+	_, err := m.Checkout(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{}
 }

@@ -2,13 +2,24 @@ package finance
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
+	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
-	"github.com/GoHyperrr/hyperrr/pkg/utils"
+	"gorm.io/gorm"
 )
+
+// IdempotencyKey prevents duplicate processing of the same operation.
+type IdempotencyKey struct {
+	ID        string    `gorm:"primaryKey"`
+	Scope     string    `gorm:"index:idx_scope_key,unique"`
+	Key       string    `gorm:"index:idx_scope_key,unique"`
+	CreatedAt time.Time
+}
 
 // ProcessPayment processes the payment for an order and creates a Payment record.
 func (m *Module) ProcessPayment(ctx context.Context, input any) (any, error) {
@@ -23,17 +34,16 @@ func (m *Module) ProcessPayment(ctx context.Context, input any) (any, error) {
 	}
 
 	// Idempotency check
-	wfID := utils.GetString(data, "_workflow_id")
+	wfID := getString(data, "_workflow_id")
 	if wfID != "" {
-		processed, err := m.repo.db.IsProcessed(ctx, "finance.process_payment", wfID)
+		processed, err := isProcessed(ctx, m.repo.db, "finance.process_payment", wfID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check idempotency: %w", err)
 		}
 		if processed {
-			logger.Info("Payment already processed for this workflow, skipping", "wf_id", wfID)
-			// Need to return the payment result to satisfy subsequent steps
+			slog.Info("Payment already processed for this workflow, skipping", "wf_id", wfID)
 			var p Payment
-			m.repo.db.WithContext(ctx).Where("order_id = ? AND status = ?", utils.GetString(workflowInput, "order_id"), PaymentSuccess).First(&p)
+			m.repo.db.WithContext(ctx).Where("order_id = ? AND status = ?", getString(workflowInput, "order_id"), PaymentSuccess).First(&p)
 			return map[string]any{"payment": &p}, nil
 		}
 	}
@@ -47,9 +57,40 @@ func (m *Module) ProcessPayment(ctx context.Context, input any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("invalid result format from order.create")
 	}
-	o, ok := resMap["order"].(registry.OrderResult)
-	if !ok {
-		return nil, fmt.Errorf("missing order from order.create result")
+
+	orderData := resMap["order"]
+	var total float64
+	var orderID string
+
+	if oGetter, ok := orderData.(interface {
+		GetTotal() float64
+		GetOrderID() string
+	}); ok {
+		total = oGetter.GetTotal()
+		orderID = oGetter.GetOrderID()
+	} else if oMap, ok := orderData.(map[string]any); ok {
+		if t, ok := oMap["total_price"].(float64); ok {
+			total = t
+		}
+		if id, ok := oMap["id"].(string); ok {
+			orderID = id
+		}
+	} else {
+		// Fallback decode
+		type TempOrder struct {
+			TotalPrice float64 `json:"total_price"`
+			ID         string  `json:"id"`
+		}
+		var temp TempOrder
+		dataBytes, _ := jsonMarshal(orderData)
+		if err := jsonUnmarshal(dataBytes, &temp); err == nil {
+			total = temp.TotalPrice
+			orderID = temp.ID
+		}
+	}
+
+	if orderID == "" {
+		return nil, fmt.Errorf("missing order ID from order.create result")
 	}
 
 	forceFail, _ := workflowInput["fail_payment"].(bool)
@@ -58,8 +99,8 @@ func (m *Module) ProcessPayment(ctx context.Context, input any) (any, error) {
 	
 	p := &Payment{
 		ID:      paymentID,
-		OrderID: o.GetOrderID(),
-		Amount:  o.GetTotal(),
+		OrderID: orderID,
+		Amount:  total,
 		Status:  PaymentPending,
 	}
 	
@@ -69,7 +110,7 @@ func (m *Module) ProcessPayment(ctx context.Context, input any) (any, error) {
 
 	if forceFail {
 		p.Status = PaymentFailed
-		m.repo.Save(ctx, p)
+		_ = m.repo.Save(ctx, p)
 		return nil, fmt.Errorf("payment gateway rejected transaction")
 	}
 
@@ -79,10 +120,10 @@ func (m *Module) ProcessPayment(ctx context.Context, input any) (any, error) {
 	}
 
 	if wfID != "" {
-		m.repo.db.MarkProcessed(ctx, "finance.process_payment", wfID)
+		_ = markProcessed(ctx, m.repo.db, "finance.process_payment", wfID)
 	}
 
-	logger.Info("Payment processed successfully", "payment_id", p.ID, "order_id", o.GetOrderID(), "amount", o.GetTotal())
+	slog.Info("Payment processed successfully", "payment_id", p.ID, "order_id", orderID, "amount", total)
 	
 	return map[string]any{"payment": p}, nil
 }
@@ -95,14 +136,14 @@ func (m *Module) CompensatePayment(ctx context.Context, input any) (any, error) 
 	}
 
 	// Idempotency check
-	wfID := utils.GetString(data, "_workflow_id")
+	wfID := getString(data, "_workflow_id")
 	if wfID != "" {
-		processed, err := m.repo.db.IsProcessed(ctx, "finance.compensate_payment", wfID)
+		processed, err := isProcessed(ctx, m.repo.db, "finance.compensate_payment", wfID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check idempotency: %w", err)
 		}
 		if processed {
-			logger.Info("Payment already refunded for this workflow, skipping", "wf_id", wfID)
+			slog.Info("Payment already refunded for this workflow, skipping", "wf_id", wfID)
 			return nil, nil
 		}
 	}
@@ -127,9 +168,68 @@ func (m *Module) CompensatePayment(ctx context.Context, input any) (any, error) 
 	}
 
 	if wfID != "" {
-		m.repo.db.MarkProcessed(ctx, "finance.compensate_payment", wfID)
+		_ = markProcessed(ctx, m.repo.db, "finance.compensate_payment", wfID)
 	}
 
-	logger.Warn("Saga Compensation: Payment refunded", "payment_id", p.ID)
+	slog.Warn("Saga Compensation: Payment refunded", "payment_id", p.ID)
 	return map[string]any{"payment": p}, nil
+}
+
+// ProcessPaymentStep wraps ProcessPayment to mdk.StepHandler.
+func (m *Module) ProcessPaymentStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.ProcessPayment(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// CompensatePaymentStep wraps CompensatePayment to mdk.StepHandler.
+func (m *Module) CompensatePaymentStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.CompensatePayment(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+func isProcessed(ctx context.Context, db *gorm.DB, scope, key string) (bool, error) {
+	var ik IdempotencyKey
+	err := db.WithContext(ctx).Table("idempotency_keys").Where("scope = ? AND key = ?", scope, key).First(&ik).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func markProcessed(ctx context.Context, db *gorm.DB, scope, key string) error {
+	ik := &IdempotencyKey{
+		ID:        "ik_" + uuid.New().String(),
+		Scope:     scope,
+		Key:       key,
+		CreatedAt: time.Now(),
+	}
+	return db.WithContext(ctx).Table("idempotency_keys").Create(ik).Error
+}
+
+func getString(m map[string]any, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func jsonMarshal(v any) ([]byte, error) {
+	return json.Marshal(v)
+}
+
+func jsonUnmarshal(data []byte, v any) error {
+	return json.Unmarshal(data, v)
 }

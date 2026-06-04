@@ -3,13 +3,13 @@ package finance
 import (
 	"context"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
-// Module implements the registry.Module interface for Finance.
+// Module implements the mdk.Module interface for Finance.
 type Module struct {
 	repo *Repository
+	rt   mdk.Runtime
 }
 
 func NewModule() *Module {
@@ -20,8 +20,14 @@ func (m *Module) ID() string {
 	return "commerce.finance"
 }
 
-func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
-	m.repo = NewRepository(deps.DB)
+func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
+	m.rt = rt
+	m.repo = NewRepository(rt.DB())
+
+	// Register named workflow step handlers
+	_ = rt.Workflows().RegisterHandler("finance.process_payment", m.ProcessPaymentStep)
+	_ = rt.Workflows().RegisterHandler("finance.compensate_payment", m.CompensatePaymentStep)
+
 	return nil
 }
 
@@ -29,11 +35,8 @@ func (m *Module) Models() []any {
 	return []any{&Payment{}}
 }
 
-func (m *Module) Handlers() map[string]workflow.TaskHandler {
-	return map[string]workflow.TaskHandler{
-		"finance.process_payment":    m.ProcessPayment,
-		"finance.compensate_payment": m.CompensatePayment,
-	}
+func (m *Module) Routes() []mdk.Route {
+	return nil
 }
 
 func (m *Module) Shutdown(ctx context.Context) error {
@@ -42,4 +45,10 @@ func (m *Module) Shutdown(ctx context.Context) error {
 
 func (m *Module) Repo() *Repository {
 	return m.repo
+}
+
+func init() {
+	mdk.Register(func() mdk.Module {
+		return NewModule()
+	})
 }

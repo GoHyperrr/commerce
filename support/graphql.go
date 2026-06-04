@@ -5,13 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/GoHyperrr/hyperrr/api/graph/model"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/google/uuid"
 )
-
-// Ensure Module implements registry.GraphQLProvider at compile time.
-var _ registry.GraphQLProvider = (*Module)(nil)
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
@@ -31,10 +26,14 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) CreateTicketResolver(ctx context.Context, customerID string, subject string, message string) (*model.Ticket, error) {
-	wf, err := m.deps.Registry.Get("support.create")
-	if err != nil {
-		return nil, err
+type syncExecutor interface {
+	ExecuteSync(ctx context.Context, id string, workflowID string, input map[string]any) (map[string]any, error)
+}
+
+func (m *Module) CreateTicketResolver(ctx context.Context, customerID string, subject string, message string) (*Ticket, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	workflowInput := map[string]any{
@@ -44,7 +43,7 @@ func (m *Module) CreateTicketResolver(ctx context.Context, customerID string, su
 	}
 
 	execID := "tkt_wf_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	results, err := executor.ExecuteSync(ctx, execID, "support.create", workflowInput)
 	if err != nil {
 		return nil, err
 	}
@@ -62,10 +61,10 @@ func (m *Module) CreateTicketResolver(ctx context.Context, customerID string, su
 		return nil, fmt.Errorf("failed to retrieve ticket from results")
 	}
 
-	return mapTicketToModel(t), nil
+	return t, nil
 }
 
-func (m *Module) AddTicketMessage(ctx context.Context, ticketID string, sender string, content string) (*model.Message, error) {
+func (m *Module) AddTicketMessage(ctx context.Context, ticketID string, sender string, content string) (*Message, error) {
 	msg := &Message{
 		ID:        "msg_" + uuid.New().String(),
 		TicketID:  ticketID,
@@ -78,50 +77,13 @@ func (m *Module) AddTicketMessage(ctx context.Context, ticketID string, sender s
 		return nil, err
 	}
 
-	return mapMessageToModel(msg), nil
+	return msg, nil
 }
 
-func (m *Module) GetTicket(ctx context.Context, id string) (*model.Ticket, error) {
-	t, err := m.repo.GetTicketByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return mapTicketToModel(t), nil
+func (m *Module) GetTicket(ctx context.Context, id string) (*Ticket, error) {
+	return m.repo.GetTicketByID(ctx, id)
 }
 
-func (m *Module) ListCustomerTickets(ctx context.Context, customerID string) ([]*model.Ticket, error) {
-	tickets, err := m.repo.ListTicketsByCustomerID(ctx, customerID)
-	if err != nil {
-		return nil, err
-	}
-
-	res := make([]*model.Ticket, 0, len(tickets))
-	for _, t := range tickets {
-		res = append(res, mapTicketToModel(t))
-	}
-	return res, nil
-}
-
-func mapTicketToModel(t *Ticket) *model.Ticket {
-	res := &model.Ticket{
-		ID:         t.ID,
-		CustomerID: t.CustomerID,
-		Subject:    t.Subject,
-		Status:     string(t.Status),
-		CreatedAt:  t.CreatedAt,
-	}
-	for _, m := range t.Messages {
-		res.Messages = append(res.Messages, mapMessageToModel(&m))
-	}
-	return res
-}
-
-func mapMessageToModel(m *Message) *model.Message {
-	return &model.Message{
-		ID:        m.ID,
-		TicketID:  m.TicketID,
-		Sender:    string(m.Sender),
-		Content:   m.Content,
-		CreatedAt: m.CreatedAt,
-	}
+func (m *Module) ListCustomerTickets(ctx context.Context, customerID string) ([]*Ticket, error) {
+	return m.repo.ListTicketsByCustomerID(ctx, customerID)
 }

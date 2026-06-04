@@ -5,13 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/GoHyperrr/hyperrr/api/graph/model"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/google/uuid"
 )
-
-// Ensure Module implements registry.GraphQLProvider at compile time.
-var _ registry.GraphQLProvider = (*Module)(nil)
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
@@ -32,10 +27,14 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) CreateProduct(ctx context.Context, input model.CreateProductInput) (*model.Product, error) {
-	wf, err := m.deps.Registry.Get("product.create")
-	if err != nil {
-		return nil, err
+type syncExecutor interface {
+	ExecuteSync(ctx context.Context, id string, workflowID string, input map[string]any) (map[string]any, error)
+}
+
+func (m *Module) CreateProduct(ctx context.Context, input CreateProductInput) (*Product, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	desc := ""
@@ -45,13 +44,13 @@ func (m *Module) CreateProduct(ctx context.Context, input model.CreateProductInp
 
 	workflowInput := map[string]any{
 		"id":          input.ID,
-		"name": input.Name,
+		"name":        input.Name,
 		"description": desc,
 		"price":       input.Price,
 	}
 
 	execID := "create_prod_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	results, err := executor.ExecuteSync(ctx, execID, "product.create", workflowInput)
 	if err != nil {
 		return nil, err
 	}
@@ -71,13 +70,13 @@ func (m *Module) CreateProduct(ctx context.Context, input model.CreateProductInp
 		return nil, fmt.Errorf("invalid product type in results: %w", err)
 	}
 
-	return mapProductToModel(&domainRes), nil
+	return &domainRes, nil
 }
 
-func (m *Module) UpdateProduct(ctx context.Context, id string, input model.UpdateProductInput) (*model.Product, error) {
-	wf, err := m.deps.Registry.Get("product.update")
-	if err != nil {
-		return nil, err
+func (m *Module) UpdateProduct(ctx context.Context, id string, input UpdateProductInput) (*Product, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	workflowInput := map[string]any{
@@ -94,7 +93,7 @@ func (m *Module) UpdateProduct(ctx context.Context, id string, input model.Updat
 	}
 
 	execID := "update_prod_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	results, err := executor.ExecuteSync(ctx, execID, "product.update", workflowInput)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +113,7 @@ func (m *Module) UpdateProduct(ctx context.Context, id string, input model.Updat
 		return nil, fmt.Errorf("invalid product type in results: %w", err)
 	}
 
-	return mapProductToModel(&domainRes), nil
+	return &domainRes, nil
 }
 
 func (m *Module) DeleteProduct(ctx context.Context, id string) (bool, error) {
@@ -131,36 +130,12 @@ func (m *Module) DeleteProduct(ctx context.Context, id string) (bool, error) {
 	return true, nil
 }
 
-func (m *Module) GetProduct(ctx context.Context, id string) (*model.Product, error) {
-	p, err := m.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	return mapProductToModel(p), nil
+func (m *Module) GetProduct(ctx context.Context, id string) (*Product, error) {
+	return m.repo.GetByID(ctx, id)
 }
 
-func (m *Module) ListProducts(ctx context.Context) ([]*model.Product, error) {
-	products, err := m.repo.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res := make([]*model.Product, 0, len(products))
-	for _, p := range products {
-		res = append(res, mapProductToModel(p))
-	}
-	return res, nil
-}
-
-func mapProductToModel(p *Product) *model.Product {
-	return &model.Product{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: &p.Description,
-		Price:       p.Price,
-		Currency:    p.Currency,
-	}
+func (m *Module) ListProducts(ctx context.Context) ([]*Product, error) {
+	return m.repo.List(ctx)
 }
 
 func decodeResult(src any, dest any) error {

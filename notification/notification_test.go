@@ -12,6 +12,7 @@ import (
 	"github.com/GoHyperrr/hyperrr/pkg/db"
 	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
 	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
 func TestNotificationModule(t *testing.T) {
@@ -24,16 +25,18 @@ func TestNotificationModule(t *testing.T) {
 	mockProv := &MockProvider{}
 
 	mod := NewModule(mockProv)
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	db.Register(mod.Models()...)
-	for name, h := range mod.Handlers() { runner.RegisterTask(name, h) }
 	database.AutoMigrateAll()
 
 	t.Run("Send Notification Success", func(t *testing.T) {
 		recipient := fmt.Sprintf("test_%s@example.com", uuid.New().String()[:8])
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{{ID: "send", Uses: "notification.send"}},
+		wf := mdk.Workflow{
+			ID:    "test-send-wf",
+			Name:  "Test Send Notification",
+			Steps: []mdk.Step{{ID: "send", Uses: "notification.send"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{
 			"recipient": recipient,
@@ -42,12 +45,19 @@ func TestNotificationModule(t *testing.T) {
 			"body":      "Hello",
 		}
 
-		res, err := runner.Execute(context.Background(), "n1", wf, input)
+		res, err := runner.ExecuteSync(context.Background(), "n1", "test-send-wf", input)
 		if err != nil {
 			t.Fatalf("workflow failed: %v", err)
 		}
 
-		n := res["send"].(*Notification)
+		sendRes, ok := res["send"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected map, got %T", res["send"])
+		}
+		n, ok := sendRes["notification"].(*Notification)
+		if !ok {
+			t.Fatalf("expected notification pointer, got %T", sendRes["notification"])
+		}
 		if n.Status != StatusSent {
 			t.Errorf("expected SENT status, got %s", n.Status)
 		}
@@ -63,9 +73,12 @@ func TestNotificationModule(t *testing.T) {
 		recipient := fmt.Sprintf("fail_%s@example.com", uuid.New().String()[:8])
 		mockProv.ShouldFail = true
 		
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{{ID: "send", Uses: "notification.send"}},
+		wf := mdk.Workflow{
+			ID:    "test-fail-wf",
+			Name:  "Test Fail Notification",
+			Steps: []mdk.Step{{ID: "send", Uses: "notification.send"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{
 			"recipient": recipient,
@@ -74,7 +87,7 @@ func TestNotificationModule(t *testing.T) {
 			"body":      "Hello",
 		}
 
-		_, err := runner.Execute(context.Background(), "n2", wf, input)
+		_, err := runner.ExecuteSync(context.Background(), "n2", "test-fail-wf", input)
 		if err == nil {
 			t.Fatal("expected workflow failure")
 		}
@@ -92,15 +105,16 @@ func TestNotificationModule(t *testing.T) {
 		recipient := fmt.Sprintf("event_%s@example.com", uuid.New().String()[:8])
 		// Test identity.user_created
 		bus.Publish(context.Background(), eventbus.Event{
-			Type: "identity.user_created",
+			Namespace: "identity",
+			Type:      "user_created",
 			Payload: map[string]any{
 				"email": recipient,
 				"name":  "Event User",
 			},
 		})
 		
-		// Wait for async workflow
-		time.Sleep(100 * time.Millisecond)
+		// Wait for welcome email workflow to be executed asynchronously
+		time.Sleep(150 * time.Millisecond)
 		
 		list, _ := mod.Repo().List(context.Background(), recipient)
 		if len(list) != 1 {
@@ -109,7 +123,8 @@ func TestNotificationModule(t *testing.T) {
 		
 		// Test workflow.completed (fulfillment)
 		bus.Publish(context.Background(), eventbus.Event{
-			Type: "workflow.completed",
+			Namespace: "workflow",
+			Type:      "completed",
 			Payload: map[string]any{
 				"name": "fulfillment.v1",
 			},

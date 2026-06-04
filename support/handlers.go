@@ -3,9 +3,10 @@ package support
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
+	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
 )
 
@@ -45,7 +46,7 @@ func (m *Module) CreateTicket(ctx context.Context, input any) (any, error) {
 		return nil, err
 	}
 
-	logger.Info("Support ticket created", "ticket_id", ticketID, "customer_id", customerID)
+	slog.Info("Support ticket created", "ticket_id", ticketID, "customer_id", customerID)
 	// Must return map for other steps to find "ticket" key in "support.create_ticket" result
 	return map[string]any{"ticket": t}, nil
 }
@@ -84,6 +85,28 @@ func (m *Module) DispatchAIResponse(ctx context.Context, input any) (any, error)
 		return nil, err
 	}
 
-	logger.Info("AI response dispatched", "ticket_id", t.ID)
+	slog.Info("AI response dispatched", "ticket_id", t.ID)
 	return map[string]any{"message": msg}, nil
+}
+
+// CreateTicketStep wraps CreateTicket to mdk.StepHandler.
+func (m *Module) CreateTicketStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.CreateTicket(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// DispatchAIResponseStep wraps DispatchAIResponse to mdk.StepHandler.
+func (m *Module) DispatchAIResponseStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.DispatchAIResponse(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
 }

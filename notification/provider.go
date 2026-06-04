@@ -2,8 +2,7 @@ package notification
 
 import (
 	"context"
-
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
+	"log/slog"
 )
 
 // Provider defines the interface for sending notifications.
@@ -20,6 +19,6 @@ func (m *MockProvider) Send(ctx context.Context, n *Notification) error {
 	if m.ShouldFail {
 		return context.DeadlineExceeded // Simulate a network failure
 	}
-	logger.Info("MockProvider: Sent notification", "recipient", n.Recipient, "channel", n.Channel, "subject", n.Subject)
+	slog.Info("MockProvider: Sent notification", "recipient", n.Recipient, "channel", n.Channel, "subject", n.Subject)
 	return nil
 }

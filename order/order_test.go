@@ -13,6 +13,7 @@ import (
 	"github.com/GoHyperrr/hyperrr/pkg/db"
 	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
 	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
 func TestOrderWorkflow(t *testing.T) {
@@ -23,61 +24,58 @@ func TestOrderWorkflow(t *testing.T) {
 	database, _ := db.Connect(cfg)
 	bus := eventbus.NewInMemBus()
 	runner := workflow.NewRunner(bus, nil, nil)
-	registryStore := workflow.NewRegistry()
 
 	mod := NewModule()
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	db.Register(mod.Models()...)
-	for name, h := range mod.Handlers() { runner.RegisterTask(name, h) }
 	
 	// Mock external handlers
-	runner.RegisterTask("finance.process_payment", func(ctx context.Context, input any) (any, error) {
-		data := input.(map[string]any)
-		workflowInput := data["input"].(map[string]any)
-		if fail, _ := workflowInput["fail_payment"].(bool); fail {
-			return nil, fmt.Errorf("payment gateway rejected transaction")
+	_ = runner.RegisterHandler("finance.process_payment", func(sCtx mdk.StepContext) mdk.StepResult {
+		if fail, _ := sCtx.Input["fail_payment"].(bool); fail {
+			return mdk.StepResult{Err: fmt.Errorf("payment gateway rejected transaction")}
 		}
-		return map[string]any{"status": "SUCCESS"}, nil
+		return mdk.StepResult{Output: map[string]any{"status": "SUCCESS"}}
 	})
-	runner.RegisterTask("finance.compensate_payment", func(ctx context.Context, input any) (any, error) {
-		return nil, nil
+	_ = runner.RegisterHandler("finance.compensate_payment", func(sCtx mdk.StepContext) mdk.StepResult {
+		return mdk.StepResult{}
 	})
 	
 	// Mock fulfillment handlers
-	runner.RegisterTask("fulfillment.reserve_inventory", func(ctx context.Context, input any) (any, error) {
-		return nil, nil
+	_ = runner.RegisterHandler("fulfillment.reserve_inventory", func(sCtx mdk.StepContext) mdk.StepResult {
+		return mdk.StepResult{}
 	})
-	runner.RegisterTask("fulfillment.release_inventory", func(ctx context.Context, input any) (any, error) {
-		return nil, nil
+	_ = runner.RegisterHandler("fulfillment.release_inventory", func(sCtx mdk.StepContext) mdk.StepResult {
+		return mdk.StepResult{}
 	})
-	runner.RegisterTask("fulfillment.create_shipment", func(ctx context.Context, input any) (any, error) {
-		return nil, nil
+	_ = runner.RegisterHandler("fulfillment.create_shipment", func(sCtx mdk.StepContext) mdk.StepResult {
+		return mdk.StepResult{}
 	})
-	runner.RegisterTask("marketing.add_loyalty_points", func(ctx context.Context, input any) (any, error) {
-		return nil, nil
+	_ = runner.RegisterHandler("marketing.add_loyalty_points", func(sCtx mdk.StepContext) mdk.StepResult {
+		return mdk.StepResult{}
 	})
 
 	database.AutoMigrateAll()
 
-	wf := &workflow.Workflow{
+	wf := mdk.Workflow{
+		ID:   "fulfillment.v1",
 		Name: "fulfillment.v1",
-		Steps: []workflow.Step{
+		Steps: []mdk.Step{
 			{
 				ID:   "fulfillment.reserve_inventory",
 				Uses: "fulfillment.reserve_inventory",
-				Saga: &workflow.Saga{Uses: "fulfillment.release_inventory"},
+				Saga: &mdk.Saga{Uses: "fulfillment.release_inventory"},
 			},
 			{
 				ID:   "order.create",
 				Uses: "order.create",
-				Saga: &workflow.Saga{Uses: "order.compensate_payment"},
+				Saga: &mdk.Saga{Uses: "order.compensate_payment"},
 				DependsOn: []string{"fulfillment.reserve_inventory"},
 			},
 			{
 				ID:        "finance.process_payment",
 				Uses:      "finance.process_payment",
 				DependsOn: []string{"order.create"},
-				Saga:      &workflow.Saga{Uses: "finance.compensate_payment"},
+				Saga:      &mdk.Saga{Uses: "finance.compensate_payment"},
 			},
 			{
 				ID:         "fulfillment.create_shipment",
@@ -88,6 +86,7 @@ func TestOrderWorkflow(t *testing.T) {
 			{ID: "marketing.add_loyalty_points", Uses: "marketing.add_loyalty_points", DependsOn: []string{"order.finalize"}},
 		},
 	}
+	_ = runner.Register(wf)
 
 	input := map[string]any{
 		"customer_id": "cust1",
@@ -102,17 +101,19 @@ func TestOrderWorkflow(t *testing.T) {
 		testBus := eventbus.NewInMemBus()
 		mod.bus = testBus
 		
-		events := make(chan eventbus.Event, 10)
-		_, _ = testBus.Subscribe(context.Background(), "order.created", func(ctx context.Context, e eventbus.Event) error {
+		events := make(chan mdk.Event, 10)
+		unsub1, _ := testBus.Subscribe("commerce.order", "order.created", func(ctx context.Context, e mdk.Event) error {
 			events <- e
 			return nil
 		})
-		_, _ = testBus.Subscribe(context.Background(), "order.paid", func(ctx context.Context, e eventbus.Event) error {
+		defer unsub1()
+		unsub2, _ := testBus.Subscribe("commerce.order", "order.paid", func(ctx context.Context, e mdk.Event) error {
 			events <- e
 			return nil
 		})
+		defer unsub2()
 
-		res, err := runner.Execute(context.Background(), "f_success_ev", wf, input)
+		res, err := runner.ExecuteSync(context.Background(), "f_success_ev", "fulfillment.v1", input)
 		if err != nil {
 			t.Fatalf("workflow failed: %v", err)
 		}
@@ -132,6 +133,7 @@ func TestOrderWorkflow(t *testing.T) {
 				if e.Type == "order.created" { foundCreated = true }
 				if e.Type == "order.paid" { foundPaid = true }
 			case <-time.After(100 * time.Millisecond):
+				break
 			}
 		}
 
@@ -149,7 +151,7 @@ func TestOrderWorkflow(t *testing.T) {
 			},
 		}
 
-		res, err := runner.Execute(context.Background(), "f_fail", wf, failInput)
+		res, err := runner.ExecuteSync(context.Background(), "f_fail", "fulfillment.v1", failInput)
 		if err == nil || !strings.Contains(err.Error(), "payment gateway rejected transaction") {
 			t.Fatalf("expected payment failure error, got %v", err)
 		}
@@ -170,8 +172,8 @@ func TestOrderRepository(t *testing.T) {
 	cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
 	database, _ := db.Connect(cfg)
 	
-	repo := NewRepository(database)
-	database.AutoMigrate(&Order{}, &OrderItem{})
+	repo := NewRepository(database.DB)
+	database.DB.AutoMigrate(&Order{}, &OrderItem{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		o := &Order{ID: "o1", CustomerID: "c1", Status: OrderPending}
@@ -195,9 +197,8 @@ func TestOrderRepository(t *testing.T) {
 		database, _ := db.Connect(cfg)
 		bus := eventbus.NewInMemBus()
 		runner := workflow.NewRunner(bus, nil, nil)
-		registryStore := workflow.NewRegistry()
 		mod := NewModule()
-		mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 		db.Register(mod.Models()...)
 		database.AutoMigrateAll()
 

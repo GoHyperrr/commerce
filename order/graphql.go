@@ -6,13 +6,12 @@ import (
 	"fmt"
 
 	"github.com/GoHyperrr/commerce/cart"
-	"github.com/GoHyperrr/hyperrr/api/graph/model"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/google/uuid"
 )
 
-// Ensure Module implements registry.GraphQLProvider at compile time.
-var _ registry.GraphQLProvider = (*Module)(nil)
+type syncExecutor interface {
+	ExecuteSync(ctx context.Context, id string, workflowID string, input map[string]any) (map[string]any, error)
+}
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
@@ -32,8 +31,8 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) CreateOrderFromCart(ctx context.Context, cartID string) (*model.Order, error) {
-	cartModRaw, ok := registry.Get("commerce.cart")
+func (m *Module) CreateOrderFromCart(ctx context.Context, cartID string) (*Order, error) {
+	cartModRaw, ok := m.rt.Module("commerce.cart")
 	if !ok {
 		return nil, fmt.Errorf("cart module not found")
 	}
@@ -67,13 +66,13 @@ func (m *Module) CreateOrderFromCart(ctx context.Context, cartID string) (*model
 		"items":       items,
 	}
 
-	wf, err := m.deps.Registry.Get("fulfillment.v1")
-	if err != nil {
-		return nil, err
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	execID := "fulfill_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	results, err := executor.ExecuteSync(ctx, execID, "fulfillment.v1", workflowInput)
 	if err != nil {
 		return nil, err
 	}
@@ -96,59 +95,19 @@ func (m *Module) CreateOrderFromCart(ctx context.Context, cartID string) (*model
 		return nil, fmt.Errorf("invalid order type in results: %w", err)
 	}
 
-	return mapOrderToModel(&o), nil
+	return &o, nil
 }
 
-func (m *Module) GetOrder(ctx context.Context, id string) (*model.Order, error) {
-	o, err := m.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return mapOrderToModel(o), nil
+func (m *Module) GetOrder(ctx context.Context, id string) (*Order, error) {
+	return m.repo.GetByID(ctx, id)
 }
 
-func (m *Module) ListOrders(ctx context.Context) ([]*model.Order, error) {
-	orders, err := m.repo.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res := make([]*model.Order, 0, len(orders))
-	for _, o := range orders {
-		res = append(res, mapOrderToModel(o))
-	}
-	return res, nil
+func (m *Module) ListOrders(ctx context.Context) ([]*Order, error) {
+	return m.repo.List(ctx)
 }
 
-func (m *Module) ListCustomerOrders(ctx context.Context, customerID string) ([]*model.Order, error) {
-	orders, err := m.repo.ListByCustomerID(ctx, customerID)
-	if err != nil {
-		return nil, err
-	}
-
-	res := make([]*model.Order, 0, len(orders))
-	for _, o := range orders {
-		res = append(res, mapOrderToModel(o))
-	}
-	return res, nil
-}
-
-func mapOrderToModel(o *Order) *model.Order {
-	res := &model.Order{
-		ID:         o.ID,
-		CustomerID: o.CustomerID,
-		Status:     string(o.Status),
-		TotalPrice: o.TotalPrice,
-	}
-	for _, item := range o.Items {
-		res.Items = append(res.Items, &model.OrderItem{
-			ID:        item.ID,
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
-			UnitPrice: item.UnitPrice,
-		})
-	}
-	return res
+func (m *Module) ListCustomerOrders(ctx context.Context, customerID string) ([]*Order, error) {
+	return m.repo.ListByCustomerID(ctx, customerID)
 }
 
 func decodeResult(src any, dest any) error {

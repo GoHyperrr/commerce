@@ -3,14 +3,14 @@ package support
 import (
 	"context"
 
-	"github.com/GoHyperrr/hyperrr/pkg/db"
+	"gorm.io/gorm"
 )
 
 type Repository struct {
-	db *db.DB
+	db *gorm.DB
 }
 
-func NewRepository(database *db.DB) *Repository {
+func NewRepository(database *gorm.DB) *Repository {
 	return &Repository{db: database}
 }
 

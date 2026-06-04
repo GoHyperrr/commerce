@@ -3,14 +3,13 @@ package marketing
 import (
 	"context"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
-// Module implements the registry.Module interface for Marketing.
+// Module implements the mdk.Module interface for Marketing.
 type Module struct {
 	repo *Repository
-	deps *registry.Dependencies
+	rt   mdk.Runtime
 }
 
 func NewModule() *Module {
@@ -21,18 +20,23 @@ func (m *Module) ID() string {
 	return "commerce.marketing"
 }
 
-func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
-	m.repo = NewRepository(deps.DB)
-	m.deps = deps
+func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
+	m.rt = rt
+	m.repo = NewRepository(rt.DB())
 
 	// Register Workflows
-	deps.Registry.Register(&workflow.Workflow{
-		Name: "marketing.apply_coupon",
-		Steps: []workflow.Step{
-			{ID: "validate", Uses: "marketing.validate_coupon"},
-			{ID: "apply", Uses: "cart.add_item", DependsOn: []string{"validate"}},
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:   "marketing.apply_coupon",
+		Name: "Marketing Apply Coupon",
+		Steps: []mdk.Step{
+			{ID: "validate", Name: "Validate Coupon", Uses: "marketing.validate_coupon"},
+			{ID: "apply", Name: "Apply Coupon", Uses: "cart.add_item", DependsOn: []string{"validate"}},
 		},
 	})
+
+	// Register named workflow step handlers
+	_ = rt.Workflows().RegisterHandler("marketing.validate_coupon", m.ValidateCouponStep)
+	_ = rt.Workflows().RegisterHandler("marketing.add_loyalty_points", m.AddLoyaltyPointsStep)
 
 	return nil
 }
@@ -41,11 +45,8 @@ func (m *Module) Models() []any {
 	return []any{&Coupon{}, &LoyaltyPoints{}}
 }
 
-func (m *Module) Handlers() map[string]workflow.TaskHandler {
-	return map[string]workflow.TaskHandler{
-		"marketing.validate_coupon":    m.ValidateCoupon,
-		"marketing.add_loyalty_points": m.AddLoyaltyPoints,
-	}
+func (m *Module) Routes() []mdk.Route {
+	return nil
 }
 
 func (m *Module) Shutdown(ctx context.Context) error {
@@ -54,4 +55,10 @@ func (m *Module) Shutdown(ctx context.Context) error {
 
 func (m *Module) Repo() *Repository {
 	return m.repo
+}
+
+func init() {
+	mdk.Register(func() mdk.Module {
+		return NewModule()
+	})
 }

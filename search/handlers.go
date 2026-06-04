@@ -3,10 +3,11 @@ package search
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/GoHyperrr/commerce/product"
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
+	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
 )
 
@@ -67,6 +68,17 @@ func (m *Module) SearchProducts(ctx context.Context, input any) (any, error) {
 	}
 	m.db.WithContext(ctx).Create(history)
 
-	logger.Info("Product search performed", "query", query, "results", len(results))
+	slog.Info("Product search performed", "query", query, "results", len(results))
 	return results, nil
+}
+
+// SearchProductsStep wraps SearchProducts to mdk.StepHandler.
+func (m *Module) SearchProductsStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.SearchProducts(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"search": res}}
 }

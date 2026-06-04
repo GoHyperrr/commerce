@@ -3,6 +3,8 @@ package product
 import (
 	"context"
 	"fmt"
+
+	"github.com/GoHyperrr/mdk"
 )
 
 // ValidateProduct checks if the product data is valid.
@@ -99,4 +101,38 @@ func (m *Module) UpdateProductDetails(ctx context.Context, input any) (any, erro
 	}
 
 	return map[string]any{"product": p}, nil
+}
+
+// ValidateProductStep wraps ValidateProduct to mdk.StepHandler.
+func (m *Module) ValidateProductStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.ValidateProduct(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// PersistProductStep wraps PersistProduct to mdk.StepHandler.
+func (m *Module) PersistProductStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.PersistProduct(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// UpdateProductDetailsStep wraps UpdateProductDetails to mdk.StepHandler.
+func (m *Module) UpdateProductDetailsStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.UpdateProductDetails(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
 }

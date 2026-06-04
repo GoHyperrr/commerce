@@ -1,72 +1,73 @@
 package customer
+
 import (
 	"context"
 
-	ctxEngine "github.com/GoHyperrr/hyperrr/pkg/ctxengine"
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
-	"github.com/GoHyperrr/hyperrr/pkg/utils"
+	"github.com/GoHyperrr/mdk"
 )
 
-// Module implements the registry.Module interface for Customer.
+// Module implements the mdk.Module interface for Customer.
 type Module struct {
 	repo      *Repository
 	brain     *MLBrainV2
-	projector *ctxEngine.Projector
-	deps      *registry.Dependencies
+	projector mdk.Projector
+	rt        mdk.Runtime
 }
 
 func NewModule() *Module {
 	return &Module{}
 }
 
-func init() {
-	registry.Register(NewModule())
-}
-
 func (m *Module) ID() string {
 	return "commerce.customer"
 }
 
-func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
-	m.repo = NewRepository(deps.DB)
-	m.deps = deps
+func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
+	m.rt = rt
+	m.repo = NewRepository(rt.DB())
 
 	// Try to resolve Projector from registry if not explicitly set
 	if m.projector == nil {
-		if ctxModVal, ok := registry.Get("core.context"); ok {
-			if ctxMod, ok := ctxModVal.(*ctxEngine.Module); ok {
-				m.projector = ctxMod.Projector()
+		if ctxModVal, ok := rt.Module("core.context"); ok {
+			if provider, ok := ctxModVal.(mdk.ProjectorProvider); ok {
+				m.projector = provider.Projector()
 				m.brain = NewMLBrainV2(m.projector)
 			}
 		}
 	}
 
 	// Register Workflows
-	deps.Registry.Register(&workflow.Workflow{
-		Name: "customer.segmentation",
-		Steps: []workflow.Step{
-			{ID: "calculate", Uses: "customer.calculate_persona"},
-			{ID: "update", Uses: "customer.update_persona", DependsOn: []string{"calculate"}},
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:   "customer.segmentation",
+		Name: "Customer Segmentation",
+		Steps: []mdk.Step{
+			{ID: "calculate", Name: "Calculate Persona", Uses: "customer.calculate_persona"},
+			{ID: "update", Name: "Update Persona", Uses: "customer.update_persona", DependsOn: []string{"calculate"}},
 		},
 	})
 
-	// Subscribe to user creation to create a business profile
-	_, _ = deps.EventBus.Subscribe(ctx, "identity.user_created", func(ctx context.Context, event eventbus.Event) error {
-		payload, ok := event.Payload.(map[string]any)
-		if !ok {
-			return nil
-		}
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:   "customer.update",
+		Name: "Customer Update",
+		Steps: []mdk.Step{
+			{ID: "customer.update_details", Name: "Update Customer Details", Uses: "customer.update_details"},
+		},
+	})
 
-		actorID := utils.GetString(payload, "actor_id")
-		userID := utils.GetString(payload, "user_id")
+	// Register named workflow step handlers
+	_ = rt.Workflows().RegisterHandler("customer.calculate_persona", m.CalculatePersonaStep)
+	_ = rt.Workflows().RegisterHandler("customer.update_persona", m.UpdatePersonaStep)
+	_ = rt.Workflows().RegisterHandler("customer.update_details", m.UpdateCustomerDetailsStep)
+
+	// Subscribe to user creation to create a business profile
+	_, _ = rt.Bus().Subscribe("identity", "user_created", func(ctx context.Context, event mdk.Event) error {
+		actorID := getString(event.Payload, "actor_id")
+		userID := getString(event.Payload, "user_id")
 		if userID == "" {
 			userID = actorID
 		}
-		name := utils.GetString(payload, "name")
-		email := utils.GetString(payload, "email")
+		name := getString(event.Payload, "name")
+		email := getString(event.Payload, "email")
 
 		if actorID == "" {
 			return nil
@@ -80,35 +81,26 @@ func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
 		}
 
 		if err := m.repo.Save(ctx, c); err != nil {
-			logger.Error("failed to create customer from event", "error", err)
+			rt.Logger().Error("failed to create customer from event", "error", err)
 			return err
 		}
 
-		logger.Info("Customer profile created for user", "id", c.ID)
+		rt.Logger().Info("Customer profile created for user", "id", c.ID)
 		return nil
 	})
 
 	// Subscribe to order completions to trigger ML segmentation
-	_, _ = deps.EventBus.Subscribe(ctx, "order.completed", func(ctx context.Context, event eventbus.Event) error {
-		payload, ok := event.Payload.(map[string]any)
-		if !ok {
-			return nil
-		}
-
-		customerID := utils.GetString(payload, "customer_id")
+	_, _ = rt.Bus().Subscribe("order", "completed", func(ctx context.Context, event mdk.Event) error {
+		customerID := getString(event.Payload, "customer_id")
 		if customerID == "" {
 			return nil
 		}
 
 		workflowID := "seg_" + customerID
-		wf, err := deps.Registry.Get("customer.segmentation")
-		if err != nil {
-			return err
-		}
-
+		_ = workflowID
 		go func() {
-			if _, err := deps.Runner.Execute(ctx, workflowID, wf, payload); err != nil {
-				logger.Error("background segmentation failed", "customer_id", customerID, "error", err)
+			if _, err := rt.Workflows().Execute(ctx, "customer.segmentation", event.Payload); err != nil {
+				rt.Logger().Error("background segmentation failed", "customer_id", customerID, "error", err)
 			}
 		}()
 		return nil 
@@ -121,12 +113,8 @@ func (m *Module) Models() []any {
 	return []any{&Customer{}, &Address{}}
 }
 
-func (m *Module) Handlers() map[string]workflow.TaskHandler {
-	return map[string]workflow.TaskHandler{
-		"customer.calculate_persona": m.CalculatePersona,
-		"customer.update_persona":    m.UpdatePersona,
-		"customer.update_details":    m.UpdateCustomerDetails,
-	}
+func (m *Module) Routes() []mdk.Route {
+	return nil
 }
 
 func (m *Module) Shutdown(ctx context.Context) error {
@@ -137,9 +125,13 @@ func (m *Module) Repo() *Repository {
 	return m.repo
 }
 
-func (m *Module) SetProjector(p *ctxEngine.Projector) {
+func (m *Module) SetProjector(p mdk.Projector) {
 	m.projector = p
 	m.brain = NewMLBrainV2(p)
 }
 
-
+func init() {
+	mdk.Register(func() mdk.Module {
+		return NewModule()
+	})
+}

@@ -4,16 +4,15 @@ import (
 	"context"
 
 	"github.com/GoHyperrr/commerce/product"
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
+	"gorm.io/gorm"
 )
 
-// Module implements the registry.Module interface for Search.
+// Module implements the mdk.Module interface for Search.
 type Module struct {
-	db      *db.DB
+	db      *gorm.DB
 	prodMod *product.Module
-	deps    *registry.Dependencies
+	rt      mdk.Runtime
 }
 
 func NewModule() *Module {
@@ -24,24 +23,28 @@ func (m *Module) ID() string {
 	return "commerce.search"
 }
 
-func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
-	m.db = deps.DB
-	m.deps = deps
+func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
+	m.rt = rt
+	m.db = rt.DB()
 
-	// Resolve product module dependency dynamically from the registry
-	if prodModVal, ok := registry.Get("commerce.product"); ok {
+	// Resolve product module dependency dynamically from the runtime
+	if prodModVal, ok := rt.Module("commerce.product"); ok {
 		if pm, ok := prodModVal.(*product.Module); ok {
 			m.prodMod = pm
 		}
 	}
 
 	// Register Workflows
-	deps.Registry.Register(&workflow.Workflow{
-		Name: "search.products",
-		Steps: []workflow.Step{
-			{ID: "search", Uses: "search.product_catalog"},
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:   "search.products",
+		Name: "Search Products",
+		Steps: []mdk.Step{
+			{ID: "search_step", Name: "Search Catalog", Uses: "search.product_catalog"},
 		},
 	})
+
+	// Register named workflow step handlers
+	_ = rt.Workflows().RegisterHandler("search.product_catalog", m.SearchProductsStep)
 
 	return nil
 }
@@ -54,12 +57,16 @@ func (m *Module) Models() []any {
 	return []any{&SearchHistory{}}
 }
 
-func (m *Module) Handlers() map[string]workflow.TaskHandler {
-	return map[string]workflow.TaskHandler{
-		"search.product_catalog": m.SearchProducts,
-	}
+func (m *Module) Routes() []mdk.Route {
+	return nil
 }
 
 func (m *Module) SetProductModule(pm *product.Module) {
 	m.prodMod = pm
+}
+
+func init() {
+	mdk.Register(func() mdk.Module {
+		return NewModule()
+	})
 }

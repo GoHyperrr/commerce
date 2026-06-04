@@ -11,6 +11,7 @@ import (
 	"github.com/GoHyperrr/hyperrr/pkg/db"
 	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
 	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
 func TestSupportModule(t *testing.T) {
@@ -21,20 +22,19 @@ func TestSupportModule(t *testing.T) {
 	database, _ := db.Connect(cfg)
 	bus := eventbus.NewInMemBus()
 	runner := workflow.NewRunner(bus, nil, nil)
-	registryStore := workflow.NewRegistry()
 
 	mod := NewModule()
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	db.Register(mod.Models()...)
-	for name, h := range mod.Handlers() { runner.RegisterTask(name, h) }
 	database.AutoMigrateAll()
 
 	t.Run("Create Ticket Success", func(t *testing.T) {
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{
-				{ID: "ticket", Uses: "support.create_ticket"},
-			},
+		wf := mdk.Workflow{
+			ID:    "test-support-wf",
+			Name:  "Test Support",
+			Steps: []mdk.Step{{ID: "ticket", Uses: "support.create_ticket"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{
 			"customer_id": "cust1",
@@ -42,7 +42,7 @@ func TestSupportModule(t *testing.T) {
 			"message":     "Need help with my order.",
 		}
 
-		res, err := runner.Execute(context.Background(), "t1", wf, input)
+		res, err := runner.ExecuteSync(context.Background(), "t1", "test-support-wf", input)
 		if err != nil {
 			t.Fatalf("workflow failed: %v", err)
 		}
@@ -103,14 +103,14 @@ func TestSupportModule(t *testing.T) {
 
 		// DispatchAIResponse - Database failure
 		badMod := NewModule()
-		badMod.repo = NewRepository(nil) // Will cause panic on SaveMessage if not careful, but handler calls m.repo.SaveMessage
+		badMod.repo = NewRepository(nil)
 		// Actually, to avoid panic and get an error, I should use a repo with a closed DB
 		dbFile := "support_bad.db"
 		defer os.Remove(dbFile)
 		badCfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
 		badDB, _ := db.Connect(badCfg)
 		sqlDB, _ := badDB.DB.DB()
-		badMod.repo = NewRepository(badDB)
+		badMod.repo = NewRepository(badDB.DB)
 		sqlDB.Close()
 		_, err = badMod.DispatchAIResponse(context.Background(), map[string]any{"ticket": map[string]any{"ticket": tkt}})
 		if err == nil { t.Error("expected error on DB failure") }
@@ -136,8 +136,8 @@ func TestSupportRepository(t *testing.T) {
 	cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
 	database, _ := db.Connect(cfg)
 	
-	repo := NewRepository(database)
-	database.AutoMigrate(&Ticket{}, &Message{})
+	repo := NewRepository(database.DB)
+	database.DB.AutoMigrate(&Ticket{}, &Message{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		tkt := &Ticket{ID: "t1", CustomerID: "c1", Status: TicketOpen, Subject: "S"}

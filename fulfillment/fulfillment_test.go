@@ -12,6 +12,7 @@ import (
 	"github.com/GoHyperrr/hyperrr/pkg/db"
 	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
 	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
 type mockOrder struct {
@@ -29,19 +30,20 @@ func TestFulfillmentWorkflow(t *testing.T) {
 	database, _ := db.Connect(cfg)
 	bus := eventbus.NewInMemBus()
 	runner := workflow.NewRunner(bus, nil, nil)
-	registryStore := workflow.NewRegistry()
 
 	mod := NewModule()
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner, Registry: registryStore})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	db.Register(mod.Models()...)
-	for name, h := range mod.Handlers() { runner.RegisterTask(name, h) }
 	database.AutoMigrateAll()
 
 	t.Run("Reserve Inventory Success", func(t *testing.T) {
 		productID := "p_res_" + uuid.New().String()[:8]
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{{ID: "reserve", Uses: "fulfillment.reserve_inventory"}},
+		wf := mdk.Workflow{
+			ID:    "test-reserve-wf",
+			Name:  "Test Reserve Inventory",
+			Steps: []mdk.Step{{ID: "reserve", Uses: "fulfillment.reserve_inventory"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{
 			"items": []any{
@@ -49,7 +51,7 @@ func TestFulfillmentWorkflow(t *testing.T) {
 			},
 		}
 
-		res, err := runner.Execute(context.Background(), "r1", wf, input)
+		res, err := runner.ExecuteSync(context.Background(), "r1", "test-reserve-wf", input)
 		if err != nil {
 			t.Fatalf("workflow failed: %v", err)
 		}
@@ -68,9 +70,12 @@ func TestFulfillmentWorkflow(t *testing.T) {
 
 	t.Run("Reserve Inventory Failure", func(t *testing.T) {
 		productID := "p_fail_" + uuid.New().String()[:8]
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{{ID: "reserve", Uses: "fulfillment.reserve_inventory"}},
+		wf := mdk.Workflow{
+			ID:    "test-reserve-fail-wf",
+			Name:  "Test Reserve Failure",
+			Steps: []mdk.Step{{ID: "reserve", Uses: "fulfillment.reserve_inventory"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{
 			"items": []any{
@@ -78,7 +83,7 @@ func TestFulfillmentWorkflow(t *testing.T) {
 			},
 		}
 
-		_, err := runner.Execute(context.Background(), "r2", wf, input)
+		_, err := runner.ExecuteSync(context.Background(), "r2", "test-reserve-fail-wf", input)
 		if err == nil || !strings.Contains(err.Error(), "insufficient inventory") {
 			t.Fatalf("expected insufficient inventory error, got %v", err)
 		}
@@ -137,9 +142,12 @@ func TestFulfillmentWorkflow(t *testing.T) {
 		s := &Shipment{ID: shipID, OrderID: orderID, Status: ShipmentPending}
 		mod.Repo().SaveShipment(context.Background(), s)
 
-		wf := &workflow.Workflow{
-			Steps: []workflow.Step{{ID: "update", Uses: "fulfillment.ship_order"}},
+		wf := mdk.Workflow{
+			ID:    "test-ship-wf",
+			Name:  "Test Ship Order",
+			Steps: []mdk.Step{{ID: "update", Uses: "fulfillment.ship_order"}},
 		}
+		_ = runner.Register(wf)
 
 		input := map[string]any{
 			"shipment_id":     shipID,
@@ -147,7 +155,7 @@ func TestFulfillmentWorkflow(t *testing.T) {
 			"carrier":         "FedEx",
 		}
 
-		res, err := runner.Execute(context.Background(), "ship1", wf, input)
+		res, err := runner.ExecuteSync(context.Background(), "ship1", "test-ship-wf", input)
 		if err != nil {
 			t.Fatalf("ShipOrder failed: %v", err)
 		}
@@ -198,8 +206,8 @@ func TestSupportRepository(t *testing.T) {
 	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
 	database, _ := db.Connect(cfg)
 	
-	repo := NewRepository(database)
-	database.AutoMigrate(&Inventory{}, &Shipment{})
+	repo := NewRepository(database.DB)
+	database.DB.AutoMigrate(&Inventory{}, &Shipment{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		inv := &Inventory{ID: "i1", ProductID: "p1", AvailableQuantity: 10}

@@ -2,18 +2,22 @@ package customer
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
+)
+
+const (
+	StateCompleted = "COMPLETED"
+	StateFailed    = "FAILED"
 )
 
 // MLBrainV2 analyzes a customer's history via the Context Engine to assign a persona.
 type MLBrainV2 struct {
-	projector registry.Projector
+	projector mdk.Projector
 }
 
-func NewMLBrainV2(p registry.Projector) *MLBrainV2 {
+func NewMLBrainV2(p mdk.Projector) *MLBrainV2 {
 	return &MLBrainV2{projector: p}
 }
 
@@ -23,19 +27,19 @@ func (m *MLBrainV2) Analyze(ctx context.Context, customerID string) (string, err
 	}
 
 	// Query for successful orders
-	orders := m.projector.QueryLineages(func(l registry.LineageData) bool {
-		return l.GetName() == "fulfillment.v1" && l.GetState() == workflow.StateCompleted
+	orders := m.projector.QueryLineages(func(l mdk.LineageData) bool {
+		return l.GetName() == "fulfillment.v1" && l.GetState() == StateCompleted
 	})
 	
 	// Query for failures
-	failures := m.projector.QueryLineages(func(l registry.LineageData) bool {
-		return l.GetState() == workflow.StateFailed
+	failures := m.projector.QueryLineages(func(l mdk.LineageData) bool {
+		return l.GetState() == StateFailed
 	})
 	
 	orderCount := len(orders)
 	failureCount := len(failures)
 
-	logger.Info("AI Brain analyzing customer", "customer_id", customerID, "orders", orderCount, "failures", failureCount)
+	slog.Info("AI Brain analyzing customer", "customer_id", customerID, "orders", orderCount, "failures", failureCount)
 
 	if orderCount > 5 {
 		return "WHALE", nil

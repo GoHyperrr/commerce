@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
+	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
 )
 
@@ -84,24 +83,22 @@ func (m *Module) CreateOrder(ctx context.Context, input any) (any, error) {
 	// Emit domain event for observability
 	if m.bus != nil {
 		wfID, _ := data["_workflow_id"].(string)
-		m.bus.Publish(ctx, eventbus.Event{
-			ID:   "evt_ord_cre_" + uuid.New().String(),
-			Type: EventOrderCreated,
-			Metadata: map[string]string{
-				"correlation_id": wfID,
-				"customer_id":    customerID,
-			},
+		_ = m.bus.Publish(ctx, mdk.Event{
+			ID:        "evt_ord_cre_" + uuid.New().String(),
+			Namespace: "commerce.order",
+			Type:      EventOrderCreated,
+			TraceID:   wfID,
 			Payload: map[string]any{
 				"id":          wfID, // For Projector to correlate with lineage
 				"order_id":    orderID,
 				"total_price": totalPrice,
 				"customer_id": customerID,
 			},
-			Timestamp: time.Now(),
+			OccurredAt: time.Now(),
 		})
 	}
 
-	logger.Info("Order created (Pending)", "order_id", orderID, "cart_id", cartID)
+	m.rt.Logger().Info("Order created (Pending)", "order_id", orderID, "cart_id", cartID)
 	return map[string]any{"order": o}, nil
 }
 
@@ -133,24 +130,22 @@ func (m *Module) FinalizeOrder(ctx context.Context, input any) (any, error) {
 	// Emit domain event
 	if m.bus != nil {
 		wfID, _ := data["_workflow_id"].(string)
-		m.bus.Publish(ctx, eventbus.Event{
-			ID:   "evt_ord_paid_" + uuid.New().String(),
-			Type: EventOrderPaid,
-			Metadata: map[string]string{
-				"correlation_id": wfID,
-				"order_id":       o.ID,
-			},
+		_ = m.bus.Publish(ctx, mdk.Event{
+			ID:        "evt_ord_paid_" + uuid.New().String(),
+			Namespace: "commerce.order",
+			Type:      EventOrderPaid,
+			TraceID:   wfID,
 			Payload: map[string]any{
 				"id":          wfID,
 				"order_id":    o.ID,
 				"total_price": o.TotalPrice,
 				"customer_id": o.CustomerID,
 			},
-			Timestamp: time.Now(),
+			OccurredAt: time.Now(),
 		})
 	}
 
-	logger.Info("Order finalized (Paid)", "order_id", o.ID)
+	m.rt.Logger().Info("Order finalized (Paid)", "order_id", o.ID)
 	return map[string]any{"order": o}, nil
 }
 
@@ -170,16 +165,52 @@ func (m *Module) CompensatePayment(ctx context.Context, input any) (any, error) 
 	if !ok {
 		return nil, nil
 	}
-	o, ok := resMap["order"].(*Order)
-	if !ok {
+	var o Order
+	if err := decodeResult(resMap["order"], &o); err != nil {
 		return nil, nil
 	}
 
 	o.Status = StatusCancelled
-	if err := m.repo.Save(ctx, o); err != nil {
+	if err := m.repo.Save(ctx, &o); err != nil {
 		return nil, err
 	}
 
-	logger.Warn("Saga Compensation: Order cancelled due to payment failure", "order_id", o.ID)
+	m.rt.Logger().Warn("Saga Compensation: Order cancelled due to payment failure", "order_id", o.ID)
 	return nil, nil
+}
+
+
+// CreateOrderStep wraps CreateOrder to mdk.StepHandler.
+func (m *Module) CreateOrderStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.CreateOrder(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, ok := res.(map[string]any)
+	if !ok {
+		return mdk.StepResult{Err: fmt.Errorf("invalid result format from CreateOrder")}
+	}
+	return mdk.StepResult{Output: resMap}
+}
+
+// FinalizeOrderStep wraps FinalizeOrder to mdk.StepHandler.
+func (m *Module) FinalizeOrderStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.FinalizeOrder(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, ok := res.(map[string]any)
+	if !ok {
+		return mdk.StepResult{Err: fmt.Errorf("invalid result format from FinalizeOrder")}
+	}
+	return mdk.StepResult{Output: resMap}
+}
+
+// CompensatePaymentStep wraps CompensatePayment to mdk.StepHandler.
+func (m *Module) CompensatePaymentStep(sCtx mdk.StepContext) mdk.StepResult {
+	_, err := m.CompensatePayment(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{}
 }

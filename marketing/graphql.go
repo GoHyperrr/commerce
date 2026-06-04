@@ -5,13 +5,8 @@ import (
 	"fmt"
 
 	"github.com/GoHyperrr/commerce/cart"
-	"github.com/GoHyperrr/hyperrr/api/graph/model"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/google/uuid"
 )
-
-// Ensure Module implements registry.GraphQLProvider at compile time.
-var _ registry.GraphQLProvider = (*Module)(nil)
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
@@ -30,10 +25,14 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) ApplyCouponToCart(ctx context.Context, cartID string, couponCode string) (*model.Cart, error) {
-	wf, err := m.deps.Registry.Get("marketing.apply_coupon")
-	if err != nil {
-		return nil, err
+type syncExecutor interface {
+	ExecuteSync(ctx context.Context, id string, workflowID string, input map[string]any) (map[string]any, error)
+}
+
+func (m *Module) ApplyCouponToCart(ctx context.Context, cartID string, couponCode string) (*cart.Cart, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
 	workflowInput := map[string]any{
@@ -45,12 +44,12 @@ func (m *Module) ApplyCouponToCart(ctx context.Context, cartID string, couponCod
 	}
 
 	execID := "promo_" + uuid.New().String()
-	results, err := m.deps.Runner.Execute(ctx, execID, wf, workflowInput)
+	_, err := executor.ExecuteSync(ctx, execID, "marketing.apply_coupon", workflowInput)
 	if err != nil {
 		return nil, err
 	}
 
-	cartModRaw, ok := registry.Get("commerce.cart")
+	cartModRaw, ok := m.rt.Module("commerce.cart")
 	if !ok {
 		return nil, fmt.Errorf("cart module not found")
 	}
@@ -59,40 +58,11 @@ func (m *Module) ApplyCouponToCart(ctx context.Context, cartID string, couponCod
 		return nil, fmt.Errorf("invalid cart module instance")
 	}
 
-	// The cart.add_item handler returns the updated cart under step ID "apply"
-	c, ok := results["apply"].(*cart.Cart)
-	if !ok {
-		// If apply didn't run because validate returned something else, just fetch the cart
-		c, err = cartMod.Repo().GetByID(ctx, cartID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Map cart to model.Cart (cart/graphql.go doesn't export mapCartToModel, so we map it here or construct)
-	res := &model.Cart{
-		ID:         c.ID,
-		CustomerID: c.CustomerID,
-		Status:     string(c.Status),
-	}
-	for _, item := range c.Items {
-		res.Items = append(res.Items, &model.CartItem{
-			ID:        item.ID,
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
-			Price:     item.Price,
-		})
-	}
-
-	return res, nil
+	return cartMod.Repo().GetByID(ctx, cartID)
 }
 
-func (m *Module) GetCoupon(ctx context.Context, code string) (*model.Coupon, error) {
-	c, err := m.repo.GetCouponByCode(ctx, code)
-	if err != nil {
-		return nil, err
-	}
-	return mapCouponToModel(c), nil
+func (m *Module) GetCoupon(ctx context.Context, code string) (*Coupon, error) {
+	return m.repo.GetCouponByCode(ctx, code)
 }
 
 func (m *Module) GetLoyaltyBalance(ctx context.Context, customerID string) (int, error) {
@@ -101,13 +71,4 @@ func (m *Module) GetLoyaltyBalance(ctx context.Context, customerID string) (int,
 		return 0, nil // Default balance
 	}
 	return lp.Balance, nil
-}
-
-func mapCouponToModel(c *Coupon) *model.Coupon {
-	return &model.Coupon{
-		ID:                 c.ID,
-		Code:               c.Code,
-		DiscountPercentage: c.DiscountPercentage,
-		Active:             c.Active,
-	}
 }

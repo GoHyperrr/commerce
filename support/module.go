@@ -3,14 +3,13 @@ package support
 import (
 	"context"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
 )
 
-// Module implements the registry.Module interface for Support.
+// Module implements the mdk.Module interface for Support.
 type Module struct {
 	repo *Repository
-	deps *registry.Dependencies
+	rt   mdk.Runtime
 }
 
 func NewModule() *Module {
@@ -21,23 +20,24 @@ func (m *Module) ID() string {
 	return "commerce.support"
 }
 
-func (m *Module) Init(ctx context.Context, deps *registry.Dependencies) error {
-	m.repo = NewRepository(deps.DB)
-	m.deps = deps
+func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
+	m.rt = rt
+	m.repo = NewRepository(rt.DB())
 
 	// Register Workflows
-	deps.Registry.Register(&workflow.Workflow{
-		Name: "support.create",
-		Steps: []workflow.Step{
-			{ID: "ticket", Uses: "support.create_ticket"},
-			{ID: "ai_reply", Uses: "support.dispatch_ai_response", DependsOn: []string{"ticket"}},
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:   "support.create",
+		Name: "Support Create Ticket",
+		Steps: []mdk.Step{
+			{ID: "ticket", Name: "Create Ticket", Uses: "support.create_ticket"},
+			{ID: "ai_response", Name: "Dispatch AI Response", Uses: "support.dispatch_ai_response", DependsOn: []string{"ticket"}},
 		},
 	})
 
-	return nil
-}
+	// Register named workflow step handlers
+	_ = rt.Workflows().RegisterHandler("support.create_ticket", m.CreateTicketStep)
+	_ = rt.Workflows().RegisterHandler("support.dispatch_ai_response", m.DispatchAIResponseStep)
 
-func (m *Module) Shutdown(ctx context.Context) error {
 	return nil
 }
 
@@ -45,13 +45,20 @@ func (m *Module) Models() []any {
 	return []any{&Ticket{}, &Message{}}
 }
 
-func (m *Module) Handlers() map[string]workflow.TaskHandler {
-	return map[string]workflow.TaskHandler{
-		"support.create_ticket":       m.CreateTicket,
-		"support.dispatch_ai_response": m.DispatchAIResponse,
-	}
+func (m *Module) Routes() []mdk.Route {
+	return nil
+}
+
+func (m *Module) Shutdown(ctx context.Context) error {
+	return nil
 }
 
 func (m *Module) Repo() *Repository {
 	return m.repo
+}
+
+func init() {
+	mdk.Register(func() mdk.Module {
+		return NewModule()
+	})
 }

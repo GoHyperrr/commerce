@@ -21,14 +21,15 @@ func TestAnalyticsModule(t *testing.T) {
 	projector.Start(context.Background())
 
 	mod := NewModule()
-	mod.Init(context.Background(), &registry.Dependencies{DB: database, EventBus: bus, Runner: runner})
+	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
 	database.AutoMigrateAll()
 
 	t.Run("System Stats", func(t *testing.T) {
 		// Emit some events to seed lineages
 		bus.Publish(context.Background(), eventbus.Event{
-			Type: "workflow.started",
-			Payload: map[string]any{"id": "wf1", "name": "test", "version": "v1"},
+			Namespace: "workflow",
+			Type:      "started",
+			Payload:   map[string]any{"id": "wf1", "name": "test", "version": "v1"},
 		})
 		
 		stats := projector.ListLineages()
@@ -46,9 +47,6 @@ func TestAnalyticsModule(t *testing.T) {
 		}
 		if len(mod.Models()) != 0 {
 			t.Error("models should be empty")
-		}
-		if len(mod.Handlers()) != 0 {
-			t.Error("handlers should be empty")
 		}
 	})
 }

@@ -2,12 +2,12 @@ package fulfillment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 
+	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
-	"github.com/GoHyperrr/hyperrr/pkg/logger"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
-	"github.com/GoHyperrr/hyperrr/pkg/utils"
 )
 
 func (m *Module) ReserveInventory(ctx context.Context, input any) (any, error) {
@@ -68,7 +68,7 @@ func (m *Module) ReserveInventory(ctx context.Context, input any) (any, error) {
 		reservedItems = append(reservedItems, productID)
 	}
 
-	logger.Info("Inventory reserved successfully", "items", reservedItems)
+	slog.Info("Inventory reserved successfully", "items", reservedItems)
 	return map[string]any{"reserved": true, "items": itemsRaw}, nil
 }
 
@@ -117,7 +117,7 @@ func (m *Module) ReleaseInventory(ctx context.Context, input any) (any, error) {
 		}
 	}
 
-	logger.Warn("Saga Compensation: Inventory released")
+	slog.Warn("Saga Compensation: Inventory released")
 	return nil, nil
 }
 
@@ -135,14 +135,33 @@ func (m *Module) CreateShipment(ctx context.Context, input any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("invalid result format from order.create")
 	}
-	o, ok := resMap["order"].(registry.OrderResult)
-	if !ok {
-		return nil, fmt.Errorf("missing order from order.create result")
+
+	var orderID string
+	if oGetter, ok := resMap["order"].(interface{ GetOrderID() string }); ok {
+		orderID = oGetter.GetOrderID()
+	} else if oMap, ok := resMap["order"].(map[string]any); ok {
+		if id, ok := oMap["id"].(string); ok {
+			orderID = id
+		} else if id, ok := oMap["ID"].(string); ok {
+			orderID = id
+		}
+	} else {
+		// Fallback: try JSON marshal/unmarshal to extract ID
+		dataBytes, _ := json.Marshal(resMap["order"])
+		var temp struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(dataBytes, &temp); err == nil {
+			orderID = temp.ID
+		}
+	}
+	if orderID == "" {
+		return nil, fmt.Errorf("missing order ID from order.create result")
 	}
 
 	s := &Shipment{
 		ID:      "shp_" + uuid.New().String(),
-		OrderID: o.GetOrderID(),
+		OrderID: orderID,
 		Status:  ShipmentPending,
 	}
 
@@ -150,7 +169,7 @@ func (m *Module) CreateShipment(ctx context.Context, input any) (any, error) {
 		return nil, fmt.Errorf("failed to save shipment: %w", err)
 	}
 
-	logger.Info("Shipment created", "shipment_id", s.ID, "order_id", o.GetOrderID())
+	slog.Info("Shipment created", "shipment_id", s.ID, "order_id", orderID)
 	return map[string]any{"shipment": s}, nil
 }
 
@@ -166,9 +185,9 @@ func (m *Module) ShipOrder(ctx context.Context, input any) (any, error) {
 		return nil, fmt.Errorf("missing workflow input")
 	}
 
-	shipmentID := utils.GetString(workflowInput, "shipment_id")
-	trackingNumber := utils.GetString(workflowInput, "tracking_number")
-	carrier := utils.GetString(workflowInput, "carrier")
+	shipmentID := getString(workflowInput, "shipment_id")
+	trackingNumber := getString(workflowInput, "tracking_number")
+	carrier := getString(workflowInput, "carrier")
 
 	s, err := m.repo.GetShipment(ctx, shipmentID)
 	if err != nil {
@@ -187,6 +206,58 @@ func (m *Module) ShipOrder(ctx context.Context, input any) (any, error) {
 		return nil, fmt.Errorf("failed to update shipment: %w", err)
 	}
 
-	logger.Info("Shipment shipped", "shipment_id", s.ID, "tracking_number", s.TrackingNumber)
+	slog.Info("Shipment shipped", "shipment_id", s.ID, "tracking_number", s.TrackingNumber)
 	return map[string]any{"shipment": s}, nil
+}
+
+// ReserveInventoryStep wraps ReserveInventory to mdk.StepHandler.
+func (m *Module) ReserveInventoryStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.ReserveInventory(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// ReleaseInventoryStep wraps ReleaseInventory to mdk.StepHandler.
+func (m *Module) ReleaseInventoryStep(sCtx mdk.StepContext) mdk.StepResult {
+	_, err := m.ReleaseInventory(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{}
+}
+
+// CreateShipmentStep wraps CreateShipment to mdk.StepHandler.
+func (m *Module) CreateShipmentStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.CreateShipment(sCtx.Ctx, sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+// ShipOrderStep wraps ShipOrder to mdk.StepHandler.
+func (m *Module) ShipOrderStep(sCtx mdk.StepContext) mdk.StepResult {
+	res, err := m.ShipOrder(sCtx.Ctx, map[string]any{
+		"input": sCtx.Input,
+	})
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	resMap, _ := res.(map[string]any)
+	return mdk.StepResult{Output: resMap}
+}
+
+func getString(m map[string]any, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
