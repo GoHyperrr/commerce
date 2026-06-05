@@ -2,8 +2,6 @@ module github.com/GoHyperrr/commerce
 
 go 1.25.5
 
-replace github.com/GoHyperrr/mdk => ../mdk
-
 require (
 	github.com/GoHyperrr/mdk v0.0.0-20260605044506-3d2ab0d97ca9
 	github.com/glebarez/sqlite v1.11.0
