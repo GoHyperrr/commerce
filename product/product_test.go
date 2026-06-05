@@ -5,40 +5,25 @@ import (
 	"os"
 	"testing"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestProductWorkflow(t *testing.T) {
 	dbFile := "product_test.db"
 	defer os.Remove(dbFile)
 
-	cfg := &config.Config{
-		DBDriver: "sqlite",
-		DBDSN:    dbFile,
-	}
-
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
 	mod := NewModule()
-	deps := &registry.Dependencies{
-		DB:       database,
-		EventBus: bus,
-		Runner:   runner,
-	}
-
-	if err := mod.Init(context.Background(), registry.NewRuntime(deps)); err != nil {
+	if err := mod.Init(context.Background(), rt); err != nil {
 		t.Fatalf("failed to init module: %v", err)
 	}
 
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = database.AutoMigrate(mod.Models()...)
+	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 	t.Run("Create Product Workflow", func(t *testing.T) {
 		input := map[string]any{
@@ -82,16 +67,12 @@ func TestProductWorkflow(t *testing.T) {
 	t.Run("Handler Error Cases", func(t *testing.T) {
 		dbFile := "prod_err_test.db"
 		defer os.Remove(dbFile)
-		cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-		database, _ := db.Connect(cfg)
-		bus := eventbus.NewInMemBus()
-		runner := workflow.NewRunner(bus, nil, nil)
+		database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+		rt := mdk.NewTestRuntime(database)
 
 		mod := NewModule()
-		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-		db.Register(mod.Models()...)
-
-		database.AutoMigrateAll()
+		_ = mod.Init(context.Background(), rt)
+		_ = database.AutoMigrate(mod.Models()...)
 
 		// 1. ValidateProduct - Invalid Input
 		_, err := mod.ValidateProduct(context.Background(), "string")
@@ -119,13 +100,11 @@ func TestProductWorkflow(t *testing.T) {
 		if err == nil { t.Error("expected error for non-existent product") }
 
 		// 5. PersistProduct - Save Failure
-		badCfg := &config.Config{DBDriver: "sqlite", DBDSN: "fail_save.db"}
-		badDB, _ := db.Connect(badCfg)
-		// Close the underlying SQL DB to force failure
-		sqlDB, _ := badDB.DB.DB()
+		badDB, _ := gorm.Open(sqlite.Open("fail_save.db"), &gorm.Config{})
+		sqlDB, _ := badDB.DB()
 		sqlDB.Close()
 		
-		mod.repo = NewRepository(badDB.DB)
+		mod.repo = NewRepository(badDB)
 		failInput := map[string]any{
 			"validate": map[string]any{
 				"id": "p_fail", "name": "Fail", "description": "", "price": 10.0,
@@ -135,7 +114,7 @@ func TestProductWorkflow(t *testing.T) {
 		if err == nil { t.Error("expected error for failed save in PersistProduct") }
 
 		// 6. UpdateProductDetails - Success (All fields)
-		mod.repo = NewRepository(database.DB) // Ensure we use the good DB
+		mod.repo = NewRepository(database) // Ensure we use the good DB
 		p := &Product{ID: "p_update", Name: "Old Name", Description: "Old Desc", Price: 50.0}
 		database.Save(p)
 		updateAllInput := map[string]any{
@@ -156,10 +135,10 @@ func TestProductWorkflow(t *testing.T) {
 		}
 
 		// 7. UpdateProductDetails - Save Failure
-		mod.repo = NewRepository(badDB.DB)
+		mod.repo = NewRepository(badDB)
 		_, err = mod.UpdateProductDetails(context.Background(), updateAllInput)
 		if err == nil { t.Error("expected error for failed save in UpdateProductDetails") }
-		mod.repo = NewRepository(database.DB) // Restore to good DB
+		mod.repo = NewRepository(database) // Restore to good DB
 
 		// 8. UpdateProductDetails - Int price
 		updateIntInput := map[string]any{

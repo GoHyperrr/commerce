@@ -4,11 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 type mockOrder struct {
@@ -42,15 +40,12 @@ func (m *flexibleMockOrder) GetTotal() float64 {
 func (m *flexibleMockOrder) GetCustomerID() string { return "" }
 
 func TestFinanceWorkflow(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open("file:memdb_finance_wf?mode=memory&cache=shared"), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
 	mod := NewModule()
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = mod.Init(context.Background(), rt)
+	_ = database.AutoMigrate(append(mod.Models(), &IdempotencyKey{})...)
 
 	t.Run("Process Payment Success - float64", func(t *testing.T) {
 		o := &flexibleMockOrder{ID: "ord1", TotalPrice: 100.50}
@@ -154,9 +149,9 @@ func TestFinanceWorkflow(t *testing.T) {
 
 		// DB failure
 		badMod := NewModule()
-		badDB, _ := db.Connect(&config.Config{DBDriver: "sqlite", DBDSN: ":memory:"})
-		sqlDB, _ := badDB.DB.DB()
-		badMod.repo = NewRepository(badDB.DB)
+		badDB, _ := gorm.Open(sqlite.Open("file:memdb_finance_bad?mode=memory&cache=shared"), &gorm.Config{})
+		sqlDB, _ := badDB.DB()
+		badMod.repo = NewRepository(badDB)
 		sqlDB.Close()
 		o := &mockOrder{ID: "ord_bad", TotalPrice: 1.0}
 		_, err = badMod.ProcessPayment(context.Background(), map[string]any{"input": map[string]any{}, "order.create": map[string]any{"order": o}})
@@ -179,11 +174,10 @@ func TestFinanceWorkflow(t *testing.T) {
 }
 
 func TestFinanceRepository(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
+	database, _ := gorm.Open(sqlite.Open("file:memdb_finance_repo?mode=memory&cache=shared"), &gorm.Config{})
 	
-	repo := NewRepository(database.DB)
-	database.DB.AutoMigrate(&Payment{})
+	repo := NewRepository(database)
+	_ = database.AutoMigrate(&Payment{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		p := &Payment{ID: "pay1", OrderID: "ord1", Amount: 15.0, Status: PaymentSuccess}

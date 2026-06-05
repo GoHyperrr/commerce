@@ -8,26 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestOrderWorkflow(t *testing.T) {
 	dbFile := "order_test.db"
 	defer os.Remove(dbFile)
 
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
 	mod := NewModule()
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	db.Register(mod.Models()...)
+	_ = mod.Init(context.Background(), rt)
+	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 	
 	// Mock external handlers
 	_ = runner.RegisterHandler("finance.process_payment", func(sCtx mdk.StepContext) mdk.StepResult {
@@ -54,7 +49,7 @@ func TestOrderWorkflow(t *testing.T) {
 		return mdk.StepResult{}
 	})
 
-	database.AutoMigrateAll()
+	_ = database.AutoMigrate(mod.Models()...)
 
 	wf := mdk.Workflow{
 		ID:   "fulfillment.v1",
@@ -97,17 +92,13 @@ func TestOrderWorkflow(t *testing.T) {
 	}
 
 	t.Run("Fulfillment Success Path with Events", func(t *testing.T) {
-		// Reset bus to capture events
-		testBus := eventbus.NewInMemBus()
-		mod.bus = testBus
-		
 		events := make(chan mdk.Event, 10)
-		unsub1, _ := testBus.Subscribe("commerce.order", "order.created", func(ctx context.Context, e mdk.Event) error {
+		unsub1, _ := rt.Bus().Subscribe("commerce.order", "order.created", func(ctx context.Context, e mdk.Event) error {
 			events <- e
 			return nil
 		})
 		defer unsub1()
-		unsub2, _ := testBus.Subscribe("commerce.order", "order.paid", func(ctx context.Context, e mdk.Event) error {
+		unsub2, _ := rt.Bus().Subscribe("commerce.order", "order.paid", func(ctx context.Context, e mdk.Event) error {
 			events <- e
 			return nil
 		})
@@ -169,11 +160,10 @@ func TestOrderWorkflow(t *testing.T) {
 func TestOrderRepository(t *testing.T) {
 	dbFile := "order_repo_test.db"
 	defer os.Remove(dbFile)
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-	database, _ := db.Connect(cfg)
+	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
 	
-	repo := NewRepository(database.DB)
-	database.DB.AutoMigrate(&Order{}, &OrderItem{})
+	repo := NewRepository(database)
+	_ = database.AutoMigrate(&Order{}, &OrderItem{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		o := &Order{ID: "o1", CustomerID: "c1", Status: OrderPending}
@@ -193,14 +183,11 @@ func TestOrderRepository(t *testing.T) {
 	t.Run("Handler Error Cases", func(t *testing.T) {
 		dbFile := "order_err_test.db"
 		defer os.Remove(dbFile)
-		cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-		database, _ := db.Connect(cfg)
-		bus := eventbus.NewInMemBus()
-		runner := workflow.NewRunner(bus, nil, nil)
+		database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+		rt := mdk.NewTestRuntime(database)
 		mod := NewModule()
-		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-		db.Register(mod.Models()...)
-		database.AutoMigrateAll()
+		_ = mod.Init(context.Background(), rt)
+		_ = database.AutoMigrate(mod.Models()...)
 
 		// 1. CreateOrder - Invalid Input
 		_, err := mod.CreateOrder(context.Background(), "string")
@@ -312,13 +299,6 @@ func TestOrderRepository(t *testing.T) {
 		if err == nil { t.Error("expected error for invalid order type in result map") }
 
 		// 12. CompensatePayment - Order does not exist in repo
-		// We need to create a module with a repo that fails or returns not found
-		// But CompensatePayment only gets the order from the input map.
-		// If it's in the input map, it tries to save it.
-		// If repo.Save fails, it returns error.
-		
-		// To test repo.Save failure, we can use a closed DB or similar, but that's overkill.
-		// Let's just test the path where order is NOT in the input.
 		res, err = mod.CompensatePayment(context.Background(), map[string]any{"order.create": nil})
 		if res != nil || err != nil { t.Error("CompensatePayment should return nil, nil if order.create is nil") }
 		

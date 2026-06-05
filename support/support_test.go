@@ -4,29 +4,23 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestSupportModule(t *testing.T) {
 	dbFile := "support_test.db"
 	defer os.Remove(dbFile)
 
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
 	mod := NewModule()
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = mod.Init(context.Background(), rt)
+	_ = database.AutoMigrate(mod.Models()...)
+	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 	t.Run("Create Ticket Success", func(t *testing.T) {
 		wf := mdk.Workflow{
@@ -103,41 +97,24 @@ func TestSupportModule(t *testing.T) {
 
 		// DispatchAIResponse - Database failure
 		badMod := NewModule()
-		badMod.repo = NewRepository(nil)
-		// Actually, to avoid panic and get an error, I should use a repo with a closed DB
 		dbFile := "support_bad.db"
 		defer os.Remove(dbFile)
-		badCfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-		badDB, _ := db.Connect(badCfg)
-		sqlDB, _ := badDB.DB.DB()
-		badMod.repo = NewRepository(badDB.DB)
+		badDB, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+		sqlDB, _ := badDB.DB()
+		badMod.repo = NewRepository(badDB)
 		sqlDB.Close()
 		_, err = badMod.DispatchAIResponse(context.Background(), map[string]any{"ticket": map[string]any{"ticket": tkt}})
 		if err == nil { t.Error("expected error on DB failure") }
 	})
 }
 
-type mockLineage struct {
-	name  string
-	state string
-	err   string
-}
-
-func (m *mockLineage) GetID() string         { return "id" }
-func (m *mockLineage) GetName() string       { return m.name }
-func (m *mockLineage) GetState() string      { return m.state }
-func (m *mockLineage) GetError() string      { return m.err }
-func (m *mockLineage) GetStartedAt() time.Time { return time.Now() }
-func (m *mockLineage) GetEndedAt() *time.Time  { return nil }
-
 func TestSupportRepository(t *testing.T) {
 	dbFile := "support_repo_test.db"
 	defer os.Remove(dbFile)
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-	database, _ := db.Connect(cfg)
+	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
 	
-	repo := NewRepository(database.DB)
-	database.DB.AutoMigrate(&Ticket{}, &Message{})
+	repo := NewRepository(database)
+	_ = database.AutoMigrate(&Ticket{}, &Message{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		tkt := &Ticket{ID: "t1", CustomerID: "c1", Status: TicketOpen, Subject: "S"}

@@ -4,24 +4,20 @@ import (
 	"context"
 	"testing"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestCartWorkflow(t *testing.T) {
 	t.Run("Add Item Workflow", func(t *testing.T) {
-		cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-		database, _ := db.Connect(cfg)
-		bus := eventbus.NewInMemBus()
-		runner := workflow.NewRunner(bus, nil, nil)
+		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		rt := mdk.NewTestRuntime(database)
 
 		mod := NewModule()
-		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-		db.Register(mod.Models()...)
-		database.AutoMigrateAll()
+		_ = mod.Init(context.Background(), rt)
+		_ = database.AutoMigrate(mod.Models()...)
+		runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 		c := &Cart{ID: "cart1", CustomerID: "cust1", Status: CartActive}
 		mod.Repo().Save(context.Background(), c)
@@ -37,15 +33,13 @@ func TestCartWorkflow(t *testing.T) {
 	})
 
 	t.Run("Remove Item Workflow", func(t *testing.T) {
-		cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-		database, _ := db.Connect(cfg)
-		bus := eventbus.NewInMemBus()
-		runner := workflow.NewRunner(bus, nil, nil)
+		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		rt := mdk.NewTestRuntime(database)
 
 		mod := NewModule()
-		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-		db.Register(mod.Models()...)
-		database.AutoMigrateAll()
+		_ = mod.Init(context.Background(), rt)
+		_ = database.AutoMigrate(mod.Models()...)
+		runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 		c := &Cart{ID: "cart1", Items: []CartItem{{ID: "i1", CartID: "cart1", ProductID: "p1", Quantity: 1}}, Status: CartActive}
 		mod.Repo().Save(context.Background(), c)
@@ -61,15 +55,13 @@ func TestCartWorkflow(t *testing.T) {
 	})
 
 	t.Run("Checkout Workflow", func(t *testing.T) {
-		cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-		database, _ := db.Connect(cfg)
-		bus := eventbus.NewInMemBus()
-		runner := workflow.NewRunner(bus, nil, nil)
+		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		rt := mdk.NewTestRuntime(database)
 
 		mod := NewModule()
-		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-		db.Register(mod.Models()...)
-		database.AutoMigrateAll()
+		_ = mod.Init(context.Background(), rt)
+		_ = database.AutoMigrate(mod.Models()...)
+		runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 		c := &Cart{ID: "cart1", Items: []CartItem{{ID: "i1", CartID: "cart1", ProductID: "p1", Quantity: 1}}, Status: CartActive}
 		mod.Repo().Save(context.Background(), c)
@@ -82,14 +74,12 @@ func TestCartWorkflow(t *testing.T) {
 	})
 
 	t.Run("Handler Error Cases", func(t *testing.T) {
-		cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-		database, _ := db.Connect(cfg)
-		bus := eventbus.NewInMemBus()
-		runner := workflow.NewRunner(bus, nil, nil)
+		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		rt := mdk.NewTestRuntime(database)
+
 		mod := NewModule()
-		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-		db.Register(mod.Models()...)
-		database.AutoMigrateAll()
+		_ = mod.Init(context.Background(), rt)
+		_ = database.AutoMigrate(mod.Models()...)
 
 		// 1. AddItem - Invalid Input
 		_, err := mod.AddItem(context.Background(), "string")

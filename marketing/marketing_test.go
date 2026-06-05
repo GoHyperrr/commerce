@@ -6,11 +6,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
+	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 type mockOrder struct {
@@ -24,15 +22,12 @@ func (m *mockOrder) GetTotal() float64     { return m.TotalPrice }
 func (m *mockOrder) GetCustomerID() string { return m.CustomerID }
 
 func TestMarketingModule(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
 	mod := NewModule()
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = mod.Init(context.Background(), rt)
+	_ = database.AutoMigrate(append(mod.Models(), &IdempotencyKey{})...)
 
 	t.Run("Validate Coupon", func(t *testing.T) {
 		code := fmt.Sprintf("SAVE_%s", uuid.New().String()[:8])
@@ -118,9 +113,9 @@ func TestMarketingModule(t *testing.T) {
 		_, err := mod.ValidateCoupon(context.Background(), "string")
 		if err == nil { t.Error("expected error for invalid input type") }
 		_, err = mod.ValidateCoupon(context.Background(), map[string]any{"input": map[string]any{"coupon_code": ""}})
-		if err == nil { t.Error("expected error for empty code") }
+		if err == nil { t.Error("expected error for empty coupon code") }
 		_, err = mod.ValidateCoupon(context.Background(), map[string]any{"input": map[string]any{"coupon_code": "GHOST"}})
-		if err == nil { t.Error("expected error for invalid code") }
+		if err == nil { t.Error("expected error for invalid coupon code") }
 
 		// AddLoyaltyPoints
 		_, err = mod.AddLoyaltyPoints(context.Background(), "string")
@@ -131,11 +126,10 @@ func TestMarketingModule(t *testing.T) {
 }
 
 func TestMarketingRepository(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
+	database, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	
-	repo := NewRepository(database.DB)
-	database.DB.AutoMigrate(&Coupon{}, &LoyaltyPoints{})
+	repo := NewRepository(database)
+	_ = database.AutoMigrate(&Coupon{}, &LoyaltyPoints{})
 
 	t.Run("Coupon CRUD", func(t *testing.T) {
 		c := &Coupon{ID: "c_repo", Code: "REPO1", DiscountPercentage: 5.0, Active: true}

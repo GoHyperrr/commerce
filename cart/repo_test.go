@@ -5,26 +5,21 @@ import (
 	"os"
 	"testing"
 
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
+	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestCartRepository(t *testing.T) {
 	dbFile := "cart_repo_test.db"
 	defer os.Remove(dbFile)
 
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: dbFile}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
 	mod := NewModule()
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = mod.Init(context.Background(), rt)
+	_ = database.AutoMigrate(mod.Models()...)
 
 	t.Run("GetActiveByCustomerID", func(t *testing.T) {
 		c2 := &Cart{ID: "cart2", CustomerID: "cust2", Status: CartActive}

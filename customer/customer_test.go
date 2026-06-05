@@ -5,42 +5,29 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
-	ctxEngine "github.com/GoHyperrr/hyperrr/pkg/ctxengine"
+	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestCustomerWorkflow(t *testing.T) {
-	cfg := &config.Config{
-		DBDriver: "sqlite",
-		DBDSN:    ":memory:",
-	}
+	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
-	projector := ctxEngine.NewProjector(bus)
-	projector.Start(context.Background())
+	testProj := &mdk.TestProjector{}
+	ctxMod := &mdk.TestContextModule{Proj: testProj}
+	rt.SetModule("core.context", ctxMod)
 
 	mod := NewModule()
-	deps := &registry.Dependencies{
-		DB:       database,
-		EventBus: bus,
-		Runner:   runner,
-	}
+	mod.SetProjector(testProj)
 
-	if err := mod.Init(context.Background(), registry.NewRuntime(deps)); err != nil {
+	if err := mod.Init(context.Background(), rt); err != nil {
 		t.Fatalf("failed to init module: %v", err)
 	}
-	mod.SetProjector(projector)
 
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = database.AutoMigrate(mod.Models()...)
+	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 	t.Run("Segmentation Workflow", func(t *testing.T) {
 		// Create a customer first
@@ -50,28 +37,12 @@ func TestCustomerWorkflow(t *testing.T) {
 		// Seed lineages to get WHALE persona (needs > 5 orders)
 		for i := 0; i < 6; i++ {
 			wfID := fmt.Sprintf("wf_%d", i)
-			bus.Publish(context.Background(), eventbus.Event{
-				ID:        wfID + "_start",
-				Namespace: "workflow",
-				Type:      "started",
-				Payload: map[string]any{
-					"name":    "fulfillment.v1",
-					"id":      wfID,
-					"version": "v1",
-				},
-			})
-			bus.Publish(context.Background(), eventbus.Event{
-				ID:        wfID + "_end",
-				Namespace: "workflow",
-				Type:      "completed",
-				Payload: map[string]any{
-					"name": "fulfillment.v1",
-					"id":   wfID,
-				},
+			testProj.Lineages = append(testProj.Lineages, mdk.TestLineageData{
+				ID:    wfID,
+				Name:  "fulfillment.v1",
+				State: "COMPLETED",
 			})
 		}
-		// Give projector a moment to process events
-		time.Sleep(150 * time.Millisecond)
 
 		input := map[string]any{
 			"customer_id": "c1",
@@ -106,16 +77,12 @@ func TestCustomerWorkflow(t *testing.T) {
 	})
 
 	t.Run("Handler Error Cases", func(t *testing.T) {
-		cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-		database, _ := db.Connect(cfg)
-		bus := eventbus.NewInMemBus()
-		runner := workflow.NewRunner(bus, nil, nil)
+		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		rt := mdk.NewTestRuntime(database)
 
 		mod := NewModule()
-		mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-		db.Register(mod.Models()...)
-
-		database.AutoMigrateAll()
+		_ = mod.Init(context.Background(), rt)
+		_ = database.AutoMigrate(mod.Models()...)
 
 		// 1. CalculatePersona - Invalid Input
 		_, err := mod.CalculatePersona(context.Background(), "string")
@@ -140,12 +107,11 @@ func TestCustomerWorkflow(t *testing.T) {
 		if err == nil { t.Error("expected error for non-existent customer") }
 		
 		// 5. identity.user_created - Missing actor_id (should skip gracefully)
-		bus.Publish(context.Background(), eventbus.Event{
+		rt.Bus().Publish(context.Background(), mdk.Event{
 			Namespace: "identity",
 			Type:      "user_created",
 			Payload:   map[string]any{"user_id": "u_no_actor", "email": "test@test.com"},
 		})
-		time.Sleep(50 * time.Millisecond)
 		_, err = mod.Repo().GetByUserID(context.Background(), "u_no_actor")
 		if err == nil {
 			t.Error("expected no customer to be created for missing actor_id")
@@ -159,7 +125,7 @@ func TestCustomerWorkflow(t *testing.T) {
 		}
 
 		// 7. order.completed - Missing customer_id
-		bus.Publish(context.Background(), eventbus.Event{
+		rt.Bus().Publish(context.Background(), mdk.Event{
 			Namespace: "order",
 			Type:      "completed",
 			Payload:   map[string]any{"wrong": "data"},
@@ -192,13 +158,12 @@ func TestCustomerWorkflow(t *testing.T) {
 		}
 
 		// 10. UpdateCustomerDetails - Save Failure
-		badCfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-		badDB, _ := db.Connect(badCfg)
-		sqlDB, _ := badDB.DB.DB()
+		badDB, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		sqlDB, _ := badDB.DB()
 		sqlDB.Close()
 
 		originalRepo := mod.repo
-		mod.repo = NewRepository(badDB.DB)
+		mod.repo = NewRepository(badDB)
 		_, err = mod.UpdateCustomerDetails(context.Background(), updateInput)
 		if err == nil { t.Error("expected error for failed save in UpdateCustomerDetails") }
 		
@@ -214,7 +179,7 @@ func TestCustomerWorkflow(t *testing.T) {
 		if err == nil { t.Error("expected error for non-existent customer in UpdatePersona") }
 
 		// 12. UpdatePersona - Save Failure
-		mod.repo = NewRepository(badDB.DB)
+		mod.repo = NewRepository(badDB)
 		personaInputValid := map[string]any{
 			"calculate": map[string]any{
 				"customer_id": "c_user",
@@ -254,7 +219,7 @@ func TestCustomerWorkflow(t *testing.T) {
 		}
 
 		// 15. identity.user_created - Success
-		bus.Publish(context.Background(), eventbus.Event{
+		rt.Bus().Publish(context.Background(), mdk.Event{
 			Namespace: "identity",
 			Type:      "user_created",
 			Payload: map[string]any{
@@ -264,21 +229,17 @@ func TestCustomerWorkflow(t *testing.T) {
 				"email":    "new@test.com",
 			},
 		})
-		time.Sleep(50 * time.Millisecond)
 		got, err = mod.Repo().GetByUserID(context.Background(), "u_new")
 		if err != nil || got.Name != "New User" {
 			t.Errorf("identity.user_created success handler failed: %v", err)
 		}
 
 		// 16. order.completed - Success (Triggers background workflow)
-		bus.Publish(context.Background(), eventbus.Event{
+		rt.Bus().Publish(context.Background(), mdk.Event{
 			Namespace: "order",
 			Type:      "completed",
 			Payload:   map[string]any{"customer_id": "c_user"},
 		})
-		time.Sleep(50 * time.Millisecond)
-		// No direct way to check background execution easily without mocking runner,
-		// but this covers the handler logic.
 	})
 
 	t.Run("Handler Error Paths Surgical", func(t *testing.T) {

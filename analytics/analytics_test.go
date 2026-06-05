@@ -3,36 +3,46 @@ package analytics
 import (
 	"context"
 	"testing"
+	"time"
 
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
-	ctxEngine "github.com/GoHyperrr/hyperrr/pkg/ctxengine"
+	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestAnalyticsModule(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
-	projector := ctxEngine.NewProjector(bus)
-	projector.Start(context.Background())
+	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
+
+	testProj := &mdk.TestProjector{}
+	ctxMod := &mdk.TestContextModule{Proj: testProj}
+	rt.SetModule("core.context", ctxMod)
 
 	mod := NewModule()
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	database.AutoMigrateAll()
+	_ = mod.Init(context.Background(), rt)
+	_ = database.AutoMigrate(mod.Models()...)
 
 	t.Run("System Stats", func(t *testing.T) {
-		// Emit some events to seed lineages
-		bus.Publish(context.Background(), eventbus.Event{
-			Namespace: "workflow",
-			Type:      "started",
-			Payload:   map[string]any{"id": "wf1", "name": "test", "version": "v1"},
-		})
+		now := time.Now()
+		ended := now.Add(time.Second)
+		testProj.Lineages = []mdk.LineageData{
+			mdk.TestLineageData{
+				ID:        "wf1",
+				Name:      "test",
+				State:     "COMPLETED",
+				StartedAt: now,
+				EndedAt:   &ended,
+				Events: []mdk.Event{
+					{
+						Namespace: "workflow",
+						Type:      "started",
+						Payload:   map[string]any{"id": "wf1", "name": "test", "version": "v1"},
+					},
+				},
+			},
+		}
 		
-		stats := projector.ListLineages()
+		stats := testProj.ListLineages()
 		if len(stats) == 0 {
 			t.Error("expected at least 1 lineage")
 		}

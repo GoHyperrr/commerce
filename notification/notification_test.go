@@ -7,27 +7,22 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestNotificationModule(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 	
 	// Create mock provider
 	mockProv := &MockProvider{}
 
 	mod := NewModule(mockProv)
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = mod.Init(context.Background(), rt)
+	_ = database.AutoMigrate(mod.Models()...)
+	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 	t.Run("Send Notification Success", func(t *testing.T) {
 		recipient := fmt.Sprintf("test_%s@example.com", uuid.New().String()[:8])
@@ -104,7 +99,7 @@ func TestNotificationModule(t *testing.T) {
 	t.Run("Event Subscriptions", func(t *testing.T) {
 		recipient := fmt.Sprintf("event_%s@example.com", uuid.New().String()[:8])
 		// Test identity.user_created
-		bus.Publish(context.Background(), eventbus.Event{
+		rt.Bus().Publish(context.Background(), mdk.Event{
 			Namespace: "identity",
 			Type:      "user_created",
 			Payload: map[string]any{
@@ -114,7 +109,7 @@ func TestNotificationModule(t *testing.T) {
 		})
 		
 		// Wait for welcome email workflow to be executed asynchronously
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		
 		list, _ := mod.Repo().List(context.Background(), recipient)
 		if len(list) != 1 {
@@ -122,15 +117,13 @@ func TestNotificationModule(t *testing.T) {
 		}
 		
 		// Test workflow.completed (fulfillment)
-		bus.Publish(context.Background(), eventbus.Event{
+		rt.Bus().Publish(context.Background(), mdk.Event{
 			Namespace: "workflow",
 			Type:      "completed",
 			Payload: map[string]any{
 				"name": "fulfillment.v1",
 			},
 		})
-		// Just ensure it doesn't panic, as it only logs for now
-		time.Sleep(10 * time.Millisecond)
 	})
 
 	t.Run("Handler Error Cases", func(t *testing.T) {

@@ -7,12 +7,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/GoHyperrr/hyperrr/pkg/workflow"
-	"github.com/GoHyperrr/hyperrr/pkg/config"
-	"github.com/GoHyperrr/hyperrr/pkg/db"
-	"github.com/GoHyperrr/hyperrr/pkg/eventbus"
-	"github.com/GoHyperrr/hyperrr/pkg/registry"
 	"github.com/GoHyperrr/mdk"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 type mockOrder struct {
@@ -26,15 +23,13 @@ func (m *mockOrder) GetTotal() float64     { return m.TotalPrice }
 func (m *mockOrder) GetCustomerID() string { return m.CustomerID }
 
 func TestFulfillmentWorkflow(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
-	bus := eventbus.NewInMemBus()
-	runner := workflow.NewRunner(bus, nil, nil)
+	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	rt := mdk.NewTestRuntime(database)
 
 	mod := NewModule()
-	mod.Init(context.Background(), registry.NewRuntime(&registry.Dependencies{DB: database, EventBus: bus, Runner: runner}))
-	db.Register(mod.Models()...)
-	database.AutoMigrateAll()
+	_ = mod.Init(context.Background(), rt)
+	_ = database.AutoMigrate(mod.Models()...)
+	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
 
 	t.Run("Reserve Inventory Success", func(t *testing.T) {
 		productID := "p_res_" + uuid.New().String()[:8]
@@ -203,11 +198,10 @@ func TestFulfillmentWorkflow(t *testing.T) {
 }
 
 func TestSupportRepository(t *testing.T) {
-	cfg := &config.Config{DBDriver: "sqlite", DBDSN: ":memory:"}
-	database, _ := db.Connect(cfg)
+	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	
-	repo := NewRepository(database.DB)
-	database.DB.AutoMigrate(&Inventory{}, &Shipment{})
+	repo := NewRepository(database)
+	_ = database.AutoMigrate(&Inventory{}, &Shipment{})
 
 	t.Run("CRUD", func(t *testing.T) {
 		inv := &Inventory{ID: "i1", ProductID: "p1", AvailableQuantity: 10}
