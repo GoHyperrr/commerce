@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -23,7 +23,7 @@ func (m *mockOrder) GetCustomerID() string { return m.CustomerID }
 
 func TestMarketingModule(t *testing.T) {
 	database, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
 	_ = mod.Init(context.Background(), rt)

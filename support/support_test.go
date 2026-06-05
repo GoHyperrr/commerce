@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -15,12 +16,12 @@ func TestSupportModule(t *testing.T) {
 	defer os.Remove(dbFile)
 
 	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
 	_ = mod.Init(context.Background(), rt)
 	_ = database.AutoMigrate(mod.Models()...)
-	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
+	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 	t.Run("Create Ticket Success", func(t *testing.T) {
 		wf := mdk.Workflow{

@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestProductWorkflow(t *testing.T) {
 	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
 	if err := mod.Init(context.Background(), rt); err != nil {
@@ -19,7 +20,7 @@ func TestProductWorkflow(t *testing.T) {
 	}
 
 	_ = database.AutoMigrate(mod.Models()...)
-	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
+	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 	t.Run("Create Product Workflow", func(t *testing.T) {
 		input := map[string]any{
@@ -74,7 +75,7 @@ func TestProductWorkflow(t *testing.T) {
 
 	t.Run("Handler Error Cases", func(t *testing.T) {
 		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		rt := mdk.NewTestRuntime(database)
+		rt := mdktest.NewTestRuntime(database)
 
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)

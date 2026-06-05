@@ -7,16 +7,17 @@ import (
 	"testing"
 
 	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestCustomerWorkflow(t *testing.T) {
 	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
-	testProj := &mdk.TestProjector{}
-	ctxMod := &mdk.TestContextModule{Proj: testProj}
+	testProj := &mdktest.TestProjector{}
+	ctxMod := &mdktest.ProjectorModule{Proj: testProj}
 	rt.SetModule("core.context", ctxMod)
 
 	mod := NewModule()
@@ -27,7 +28,7 @@ func TestCustomerWorkflow(t *testing.T) {
 	}
 
 	_ = database.AutoMigrate(mod.Models()...)
-	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
+	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 	t.Run("Segmentation Workflow", func(t *testing.T) {
 		// Create a customer first
@@ -37,7 +38,7 @@ func TestCustomerWorkflow(t *testing.T) {
 		// Seed lineages to get WHALE persona (needs > 5 orders)
 		for i := 0; i < 6; i++ {
 			wfID := fmt.Sprintf("wf_%d", i)
-			testProj.Lineages = append(testProj.Lineages, mdk.TestLineageData{
+			testProj.Lineages = append(testProj.Lineages, mdktest.TestLineageData{
 				ID:    wfID,
 				Name:  "fulfillment.v1",
 				State: "COMPLETED",
@@ -78,7 +79,7 @@ func TestCustomerWorkflow(t *testing.T) {
 
 	t.Run("Handler Error Cases", func(t *testing.T) {
 		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		rt := mdk.NewTestRuntime(database)
+		rt := mdktest.NewTestRuntime(database)
 
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)

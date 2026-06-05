@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -24,12 +25,12 @@ func (m *mockOrder) GetCustomerID() string { return m.CustomerID }
 
 func TestFulfillmentWorkflow(t *testing.T) {
 	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
 	_ = mod.Init(context.Background(), rt)
 	_ = database.AutoMigrate(mod.Models()...)
-	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
+	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 	t.Run("Reserve Inventory Success", func(t *testing.T) {
 		productID := "p_res_" + uuid.New().String()[:8]
