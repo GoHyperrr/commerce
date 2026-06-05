@@ -37,16 +37,14 @@ func (m *Module) CreateProduct(ctx context.Context, input CreateProductInput) (*
 		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
-	desc := ""
-	if input.Description != nil {
-		desc = *input.Description
+	// Convert input struct to map[string]any for workflow context
+	inputBytes, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
 	}
-
-	workflowInput := map[string]any{
-		"id":          input.ID,
-		"name":        input.Name,
-		"description": desc,
-		"price":       input.Price,
+	var workflowInput map[string]any
+	if err := json.Unmarshal(inputBytes, &workflowInput); err != nil {
+		return nil, err
 	}
 
 	execID := "create_prod_" + uuid.New().String()
@@ -79,18 +77,15 @@ func (m *Module) UpdateProduct(ctx context.Context, id string, input UpdateProdu
 		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
 	}
 
-	workflowInput := map[string]any{
-		"id": id,
+	inputBytes, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
 	}
-	if input.Name != nil {
-		workflowInput["name"] = *input.Name
+	var workflowInput map[string]any
+	if err := json.Unmarshal(inputBytes, &workflowInput); err != nil {
+		return nil, err
 	}
-	if input.Description != nil {
-		workflowInput["description"] = *input.Description
-	}
-	if input.Price != nil {
-		workflowInput["price"] = *input.Price
-	}
+	workflowInput["id"] = id
 
 	execID := "update_prod_" + uuid.New().String()
 	results, err := executor.ExecuteSync(ctx, execID, "product.update", workflowInput)

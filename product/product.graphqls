@@ -1,3 +1,5 @@
+scalar Map
+
 extend type Query {
   getProduct(id: ID!): Product
   listProducts: [Product!]!
@@ -12,22 +14,143 @@ extend type Mutation {
 type Product {
   id: ID!
   name: String!
-  description: String
+  handle: String!
+  description: String!
+  type: String!
+  status: String!
+  details: ProductDetails!
+  seo: SEO!
+  metadata: Map
+  aiSystemContext: String!
+  options: [ProductOption!]!
+  variants: [ProductVariant!]!
+  images: [ProductImage!]!
+}
+
+type ProductDetails {
+  sku: String
+  barcode: String
+  hsnCode: String
+  weight: Float
+  length: Float
+  width: Float
+  height: Float
+  fileUrl: String
+  maxDownloads: Int
+  downloadExpirationHours: Int
+}
+
+type SEO {
+  metaTitle: String!
+  metaDescription: String!
+  metaKeywords: String!
+  metaImage: String!
+}
+
+type ProductOption {
+  id: ID!
+  productId: String!
+  name: String!
+  values: [String!]!
+}
+
+type ProductVariant {
+  id: ID!
+  productId: String!
+  title: String!
   price: Float!
-  currency: String!
+  compareAtPrice: Float
+  details: ProductDetails!
+  options: [VariantOption!]!
+  metadata: Map
+}
+
+type VariantOption {
+  id: ID!
+  variantId: String!
+  name: String!
+  value: String!
+}
+
+type ProductImage {
+  id: ID!
+  productId: String!
+  variantId: String
+  url: String!
+  altText: String!
+  sortOrder: Int!
 }
 
 input CreateProductInput {
-  id: ID!
+  id: ID
   name: String!
+  handle: String!
   description: String
+  type: String
+  status: String
+  details: ProductDetailsInput
+  seo: SEOInput
+  metadata: Map
+  aiSystemContext: String
+  options: [ProductOptionInput!]
+  variants: [CreateProductVariantInput!]
+  images: [ProductImageInput!]
+}
+
+input ProductDetailsInput {
+  sku: String
+  barcode: String
+  hsnCode: String
+  weight: Float
+  length: Float
+  width: Float
+  height: Float
+  fileUrl: String
+  maxDownloads: Int
+  downloadExpirationHours: Int
+}
+
+input SEOInput {
+  metaTitle: String
+  metaDescription: String
+  metaKeywords: String
+  metaImage: String
+}
+
+input ProductOptionInput {
+  name: String!
+  values: [String!]!
+}
+
+input CreateProductVariantInput {
+  title: String!
   price: Float!
-  currency: String
+  compareAtPrice: Float
+  details: ProductDetailsInput
+  options: [VariantOptionInput!]
+  metadata: Map
+}
+
+input VariantOptionInput {
+  name: String!
+  value: String!
+}
+
+input ProductImageInput {
+  variantId: String
+  url: String!
+  altText: String
+  sortOrder: Int
 }
 
 input UpdateProductInput {
   name: String
+  handle: String
   description: String
-  price: Float
-  currency: String
+  type: String
+  status: String
+  details: ProductDetailsInput
+  seo: SEOInput
+  metadata: Map
+  aiSystemContext: String
 }

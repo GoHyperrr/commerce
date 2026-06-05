@@ -55,7 +55,7 @@ func (m *Module) Shutdown(ctx context.Context) error {
 }
 
 func (m *Module) Models() []any {
-	return []any{&Product{}}
+	return []any{&Product{}, &ProductOption{}, &ProductVariant{}, &VariantOption{}, &ProductImage{}}
 }
 
 func (m *Module) Routes() []mdk.Route {
