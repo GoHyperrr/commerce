@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -41,7 +41,7 @@ func (m *flexibleMockOrder) GetCustomerID() string { return "" }
 
 func TestFinanceWorkflow(t *testing.T) {
 	database, _ := gorm.Open(sqlite.Open("file:memdb_finance_wf?mode=memory&cache=shared"), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
 	_ = mod.Init(context.Background(), rt)

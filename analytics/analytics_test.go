@@ -6,16 +6,17 @@ import (
 	"time"
 
 	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestAnalyticsModule(t *testing.T) {
 	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
-	testProj := &mdk.TestProjector{}
-	ctxMod := &mdk.TestContextModule{Proj: testProj}
+	testProj := &mdktest.TestProjector{}
+	ctxMod := &mdktest.ProjectorModule{Proj: testProj}
 	rt.SetModule("core.context", ctxMod)
 
 	mod := NewModule()
@@ -26,7 +27,7 @@ func TestAnalyticsModule(t *testing.T) {
 		now := time.Now()
 		ended := now.Add(time.Second)
 		testProj.Lineages = []mdk.LineageData{
-			mdk.TestLineageData{
+			mdktest.TestLineageData{
 				ID:        "wf1",
 				Name:      "test",
 				State:     "COMPLETED",

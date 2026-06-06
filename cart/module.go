@@ -30,9 +30,9 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		Name: "Cart Add Item",
 		Steps: []mdk.Step{
 			{
-				ID:      "add",
-				Name:    "Add Item",
-				Handler: m.AddItemStep,
+				ID:   "add",
+				Name: "Add Item",
+				Uses: "cart.add_item",
 			},
 		},
 	})
@@ -42,9 +42,9 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		Name: "Cart Remove Item",
 		Steps: []mdk.Step{
 			{
-				ID:      "remove",
-				Name:    "Remove Item",
-				Handler: m.RemoveItemStep,
+				ID:   "remove",
+				Name: "Remove Item",
+				Uses: "cart.remove_item",
 			},
 		},
 	})
@@ -54,15 +54,16 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		Name: "Cart Checkout",
 		Steps: []mdk.Step{
 			{
-				ID:      "checkout",
-				Name:    "Checkout",
-				Handler: m.CheckoutStep,
+				ID:   "checkout",
+				Name: "Checkout",
+				Uses: "cart.checkout",
 			},
 		},
 	})
 
 	_ = rt.Workflows().RegisterHandler("cart.add_item", m.AddItemStep)
 	_ = rt.Workflows().RegisterHandler("cart.remove_item", m.RemoveItemStep)
+	_ = rt.Workflows().RegisterHandler("cart.checkout", m.CheckoutStep)
 
 	return nil
 }

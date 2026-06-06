@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/GoHyperrr/mdk"
+	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -18,11 +19,11 @@ func TestOrderWorkflow(t *testing.T) {
 	defer os.Remove(dbFile)
 
 	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
-	rt := mdk.NewTestRuntime(database)
+	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
 	_ = mod.Init(context.Background(), rt)
-	runner := rt.Workflows().(*mdk.TestWorkflowEngine)
+	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 	
 	// Mock external handlers
 	_ = runner.RegisterHandler("finance.process_payment", func(sCtx mdk.StepContext) mdk.StepResult {
@@ -184,7 +185,7 @@ func TestOrderRepository(t *testing.T) {
 		dbFile := "order_err_test.db"
 		defer os.Remove(dbFile)
 		database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
-		rt := mdk.NewTestRuntime(database)
+		rt := mdktest.NewTestRuntime(database)
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)
 		_ = database.AutoMigrate(mod.Models()...)
