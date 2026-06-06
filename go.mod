@@ -3,7 +3,7 @@ module github.com/GoHyperrr/commerce
 go 1.25.5
 
 require (
-	github.com/GoHyperrr/mdk v0.2.0
+	github.com/GoHyperrr/mdk v0.3.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/uuid v1.6.0
 	gorm.io/gorm v1.31.1
@@ -23,4 +23,3 @@ require (
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/sqlite v1.23.1 // indirect
 )
-
