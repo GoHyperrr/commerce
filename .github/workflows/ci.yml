@@ -19,7 +19,9 @@ jobs:
         with:
           repository: GoHyperrr/mdk
           ref: ${{ github.head_ref || github.ref_name }}
-          path: ../mdk
+          path: mdk
+      - name: Move mdk to parent directory
+        run: mv mdk ../mdk
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
