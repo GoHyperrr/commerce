@@ -59,3 +59,40 @@ type TaxonomyRelation struct {
 	ResourceID   string `gorm:"primaryKey" json:"resource_id"`
 	ResourceType string `gorm:"primaryKey" json:"resource_type"` // e.g. "product", "page", "post"
 }
+
+type CreateTaxonomyInput struct {
+	Name     string       `json:"name"`
+	Code     string       `json:"code"`
+	Type     string       `json:"type"`
+	Metadata mdk.Metadata `json:"metadata"`
+}
+
+type CreateTaxonomyTermInput struct {
+	TaxonomyID  string       `json:"taxonomyId"`
+	ParentID    *string      `json:"parentId"`
+	Name        string       `json:"name"`
+	Slug        string       `json:"slug"`
+	Description *string      `json:"description"`
+	SEO         *SEOInput    `json:"seo"`
+	Metadata    mdk.Metadata `json:"metadata"`
+}
+
+type SEOInput struct {
+	MetaTitle       *string `json:"metaTitle"`
+	MetaDescription *string `json:"metaDescription"`
+	MetaKeywords    *string `json:"metaKeywords"`
+	MetaImage       *string `json:"metaImage"`
+}
+
+type LinkResourceInput struct {
+	TermID       string `json:"termId"`
+	ResourceID   string `json:"resourceId"`
+	ResourceType string `json:"resourceType"`
+}
+
+type UnlinkResourceInput struct {
+	TermID       string `json:"termId"`
+	ResourceID   string `json:"resourceId"`
+	ResourceType string `json:"resourceType"`
+}
+

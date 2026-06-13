@@ -1,0 +1,65 @@
+type Taxonomy {
+  id: ID!
+  name: String!
+  code: String!
+  type: String!
+  metadata: Map
+  terms: [TaxonomyTerm!]!
+}
+
+type TaxonomyTerm {
+  id: ID!
+  taxonomyId: String!
+  parentId: String
+  name: String!
+  slug: String!
+  description: String!
+  seo: SEO
+  metadata: Map
+  children: [TaxonomyTerm!]
+}
+
+input CreateTaxonomyInput {
+  name: String!
+  code: String!
+  type: String!
+  metadata: Map
+}
+
+input CreateTaxonomyTermInput {
+  taxonomyId: String!
+  parentId: String
+  name: String!
+  slug: String!
+  description: String
+  seo: SEOInput
+  metadata: Map
+}
+
+input LinkResourceInput {
+  termId: ID!
+  resourceId: ID!
+  resourceType: String!
+}
+
+input UnlinkResourceInput {
+  termId: ID!
+  resourceId: ID!
+  resourceType: String!
+}
+
+extend type Query {
+  taxonomy(code: String!): Taxonomy
+  listTaxonomies: [Taxonomy!]!
+  term(slug: String!): TaxonomyTerm
+  termTree(taxonomyId: ID!): [TaxonomyTerm!]!
+  termsForResource(resourceId: ID!, resourceType: String!): [TaxonomyTerm!]!
+  resourceIdsForTerm(termId: ID!, resourceType: String!): [String!]!
+}
+
+extend type Mutation {
+  createTaxonomy(input: CreateTaxonomyInput!): Taxonomy!
+  createTaxonomyTerm(input: CreateTaxonomyTermInput!): TaxonomyTerm!
+  linkResource(input: LinkResourceInput!): Boolean!
+  unlinkResource(input: UnlinkResourceInput!): Boolean!
+}
