@@ -1,23 +1,21 @@
-extend type Query {
-  getCustomer(id: ID!): Customer
-  listCustomers: [Customer!]!
-}
-
-extend type Mutation {
-  updateCustomer(id: ID!, input: UpdateCustomerInput!): Customer!
-}
-
 type Customer {
   id: ID!
-  userId: String!
+  userId: String
+  isGuest: Boolean!
   name: String!
   email: String!
-  persona: String
+  phone: String
+  defaultShippingAddressId: String
+  defaultBillingAddressId: String
   addresses: [Address!]!
+  metadata: Map
 }
 
 type Address {
   id: ID!
+  customerId: String!
+  receiverName: String
+  phone: String
   line1: String!
   line2: String
   city: String!
@@ -26,7 +24,58 @@ type Address {
   country: String!
 }
 
+input CreateCustomerInput {
+  userId: String
+  isGuest: Boolean
+  name: String!
+  email: String!
+  phone: String
+  metadata: Map
+}
+
 input UpdateCustomerInput {
   name: String
   email: String
+  phone: String
+  defaultShippingAddressId: String
+  defaultBillingAddressId: String
+  metadata: Map
+}
+
+input CreateAddressInput {
+  receiverName: String
+  phone: String
+  line1: String!
+  line2: String
+  city: String!
+  state: String!
+  zip: String!
+  country: String!
+}
+
+input UpdateAddressInput {
+  receiverName: String
+  phone: String
+  line1: String
+  line2: String
+  city: String
+  state: String
+  zip: String
+  country: String
+}
+
+extend type Query {
+  getCustomer(id: ID!): Customer
+  listCustomers: [Customer!]!
+  getCustomerAddresses(customerId: ID!): [Address!]!
+}
+
+extend type Mutation {
+  createCustomer(input: CreateCustomerInput!): Customer!
+  updateCustomer(id: ID!, input: UpdateCustomerInput!): Customer!
+  deleteCustomer(id: ID!): Boolean!
+  
+  addCustomerAddress(customerId: ID!, input: CreateAddressInput!): Address!
+  updateCustomerAddress(addressId: ID!, input: UpdateAddressInput!): Address!
+  deleteCustomerAddress(addressId: ID!): Boolean!
 }
