@@ -1,0 +1,13 @@
+type SEO {
+  metaTitle: String!
+  metaDescription: String!
+  metaKeywords: String!
+  metaImage: String!
+}
+
+input SEOInput {
+  metaTitle: String
+  metaDescription: String
+  metaKeywords: String
+  metaImage: String
+}

@@ -1,0 +1,66 @@
+type StoreSettings {
+  id: ID!
+  name: String!
+  host: String!
+  email: String
+  phone: String
+  description: String
+  currency: String!
+  locale: String!
+  timezone: String!
+  address: String
+  city: String
+  state: String
+  zip: String
+  country: String
+  seo: SEO
+  robotsTxt: String
+  sitemapUrl: String
+  logoUrl: String
+  faviconUrl: String
+  socialFacebook: String
+  socialInstagram: String
+  socialTwitter: String
+  socialLinkedin: String
+  socialYoutube: String
+  socialPinterest: String
+  socialTikTok: String
+  metadata: Map
+}
+
+input UpdateStoreSettingsInput {
+  name: String
+  host: String
+  email: String
+  phone: String
+  description: String
+  currency: String
+  locale: String
+  timezone: String
+  address: String
+  city: String
+  state: String
+  zip: String
+  country: String
+  seo: SEOInput
+  robotsTxt: String
+  sitemapUrl: String
+  logoUrl: String
+  faviconUrl: String
+  socialFacebook: String
+  socialInstagram: String
+  socialTwitter: String
+  socialLinkedin: String
+  socialYoutube: String
+  socialPinterest: String
+  socialTikTok: String
+  metadata: Map
+}
+
+extend type Query {
+  storeSettings: StoreSettings!
+}
+
+extend type Mutation {
+  updateStoreSettings(input: UpdateStoreSettingsInput!): StoreSettings!
+}

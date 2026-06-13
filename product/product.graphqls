@@ -40,13 +40,6 @@ type ProductDetails {
   downloadExpirationHours: Int
 }
 
-type SEO {
-  metaTitle: String!
-  metaDescription: String!
-  metaKeywords: String!
-  metaImage: String!
-}
-
 type ProductOption {
   id: ID!
   productId: String!
@@ -108,13 +101,6 @@ input ProductDetailsInput {
   fileUrl: String
   maxDownloads: Int
   downloadExpirationHours: Int
-}
-
-input SEOInput {
-  metaTitle: String
-  metaDescription: String
-  metaKeywords: String
-  metaImage: String
 }
 
 input ProductOptionInput {
