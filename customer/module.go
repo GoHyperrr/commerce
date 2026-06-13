@@ -2,6 +2,8 @@ package customer
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/GoHyperrr/mdk"
 )
@@ -58,7 +60,131 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		return nil
 	})
 
+	// Register Workflows
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "customer.create",
+		Name:        "customer.create",
+		Description: "Create a new customer profile (supports both guest and registered profiles).",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":    map[string]any{"type": "string"},
+				"email":   map[string]any{"type": "string"},
+				"phone":   map[string]any{"type": "string"},
+				"isGuest": map[string]any{"type": "boolean"},
+				"userId":  map[string]any{"type": "string"},
+			},
+			"required": []string{"name", "email"},
+		},
+		Steps: []mdk.Step{
+			{ID: "create", Name: "Create Profile", Uses: "customer.create_profile"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "customer.add_address",
+		Name:        "customer.add_address",
+		Description: "Add a shipping or billing address to a customer profile.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"customerId":   map[string]any{"type": "string"},
+				"receiverName": map[string]any{"type": "string"},
+				"phone":        map[string]any{"type": "string"},
+				"line1":        map[string]any{"type": "string"},
+				"line2":        map[string]any{"type": "string"},
+				"city":         map[string]any{"type": "string"},
+				"state":        map[string]any{"type": "string"},
+				"zip":          map[string]any{"type": "string"},
+				"country":      map[string]any{"type": "string"},
+			},
+			"required": []string{"customerId", "line1", "city", "state", "zip", "country"},
+		},
+		Steps: []mdk.Step{
+			{ID: "add_address", Name: "Add Address", Uses: "customer.add_address_step"},
+		},
+	})
+
+	_ = rt.Workflows().RegisterHandler("customer.create_profile", m.CreateProfileStep)
+	_ = rt.Workflows().RegisterHandler("customer.add_address_step", m.AddAddressStepHandler)
+
 	return nil
+}
+
+func (m *Module) CreateProfileStep(sCtx mdk.StepContext) mdk.StepResult {
+	ba, err := json.Marshal(sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	var in CreateCustomerInput
+	if err := json.Unmarshal(ba, &in); err != nil {
+		return mdk.StepResult{Err: err}
+	}
+
+	cust, err := m.CreateCustomer(sCtx.Ctx, in)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+
+	return mdk.StepResult{Output: map[string]any{"customer": cust}}
+}
+
+func (m *Module) AddAddressStepHandler(sCtx mdk.StepContext) mdk.StepResult {
+	ba, err := json.Marshal(sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	var in CreateAddressInput
+	if err := json.Unmarshal(ba, &in); err != nil {
+		return mdk.StepResult{Err: err}
+	}
+
+	customerID, _ := sCtx.Input["customerId"].(string)
+	if customerID == "" {
+		return mdk.StepResult{Err: fmt.Errorf("customerId required")}
+	}
+
+	addr, err := m.AddCustomerAddress(sCtx.Ctx, customerID, in)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+
+	return mdk.StepResult{Output: map[string]any{"address": addr}}
+}
+
+func (m *Module) ListResources(ctx context.Context) ([]mdk.MCPResource, error) {
+	customers, err := m.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var res []mdk.MCPResource
+	for _, c := range customers {
+		res = append(res, mdk.MCPResource{
+			URI:         "customer://" + c.ID,
+			Name:        "Customer: " + c.Name,
+			Description: "Profile details for customer " + c.ID + " (" + c.Email + ")",
+			MimeType:    "application/json",
+		})
+	}
+	return res, nil
+}
+
+func (m *Module) ReadResource(ctx context.Context, uri string) (string, error) {
+	var customerID string
+	if n, err := fmt.Sscanf(uri, "customer://%s", &customerID); err != nil || n != 1 {
+		return "", fmt.Errorf("invalid customer URI")
+	}
+	c, err := m.repo.GetByID(ctx, customerID)
+	if err != nil {
+		return "", err
+	}
+	dataBytes, err := json.Marshal(c)
+	if err != nil {
+		return "", err
+	}
+	return string(dataBytes), nil
 }
 
 // Models registers GORM database structures for database migrations.

@@ -4,8 +4,19 @@ extend type Query {
   listCustomerOrders(customerId: ID!): [Order!]!
 }
 
+input CheckoutInput {
+  shippingAddressId: String
+  billingAddressId: String
+  shippingAddress: CreateAddressInput
+  billingAddress: CreateAddressInput
+  paymentMethod: String
+  paymentDetails: Map
+  shippingCarrier: String
+  shippingMethod: String
+}
+
 extend type Mutation {
-  createOrderFromCart(cartId: ID!): Order!
+  createOrderFromCart(cartId: ID!, input: CheckoutInput): Order!
 }
 
 type Order {
@@ -14,6 +25,13 @@ type Order {
   status: String!
   totalPrice: Float!
   items: [OrderItem!]!
+  shippingAddressId: String
+  billingAddressId: String
+  shippingAddressJson: String
+  billingAddressJson: String
+  paymentMethod: String
+  shippingCarrier: String
+  shippingMethod: String
 }
 
 type OrderItem {

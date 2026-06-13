@@ -2,12 +2,51 @@ package order
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/GoHyperrr/commerce/customer"
 	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
 )
+
+func getStringOrPointer(m map[string]any, key string) *string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return nil
+	}
+	if s, ok := v.(string); ok {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+	if sp, ok := v.(*string); ok {
+		if sp == nil || *sp == "" {
+			return nil
+		}
+		return sp
+	}
+	return nil
+}
+
+func getStringVal(m map[string]any, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	if sp, ok := v.(*string); ok {
+		if sp == nil {
+			return ""
+		}
+		return *sp
+	}
+	return ""
+}
 
 // CreateOrder initializes the order in PENDING state.
 func (m *Module) CreateOrder(ctx context.Context, input any) (any, error) {
@@ -37,6 +76,45 @@ func (m *Module) CreateOrder(ctx context.Context, input any) (any, error) {
 		ID:         orderID,
 		CustomerID: customerID,
 		Status:     StatusPending,
+	}
+
+	// Address and payment/shipping parameters propagation
+	o.ShippingAddressID = getStringOrPointer(workflowInput, "shipping_address_id")
+	o.BillingAddressID = getStringOrPointer(workflowInput, "billing_address_id")
+	o.PaymentMethod = getStringVal(workflowInput, "payment_method")
+	o.ShippingCarrier = getStringVal(workflowInput, "shipping_carrier")
+	o.ShippingMethod = getStringVal(workflowInput, "shipping_method")
+
+	// Resolve Shipping Address JSON Snapshot
+	if o.ShippingAddressID != nil {
+		var addr customer.Address
+		if err := m.rt.DB().WithContext(ctx).First(&addr, "id = ?", *o.ShippingAddressID).Error; err == nil {
+			addrBytes, _ := json.Marshal(addr)
+			addrStr := string(addrBytes)
+			o.ShippingAddressJSON = &addrStr
+		}
+	} else if shippingAddr, ok := workflowInput["shipping_address"]; ok && shippingAddr != nil {
+		addrBytes, _ := json.Marshal(shippingAddr)
+		addrStr := string(addrBytes)
+		o.ShippingAddressJSON = &addrStr
+	} else if shippingAddrJSON := getStringOrPointer(workflowInput, "shipping_address_json"); shippingAddrJSON != nil {
+		o.ShippingAddressJSON = shippingAddrJSON
+	}
+
+	// Resolve Billing Address JSON Snapshot
+	if o.BillingAddressID != nil {
+		var addr customer.Address
+		if err := m.rt.DB().WithContext(ctx).First(&addr, "id = ?", *o.BillingAddressID).Error; err == nil {
+			addrBytes, _ := json.Marshal(addr)
+			addrStr := string(addrBytes)
+			o.BillingAddressJSON = &addrStr
+		}
+	} else if billingAddr, ok := workflowInput["billing_address"]; ok && billingAddr != nil {
+		addrBytes, _ := json.Marshal(billingAddr)
+		addrStr := string(addrBytes)
+		o.BillingAddressJSON = &addrStr
+	} else if billingAddrJSON := getStringOrPointer(workflowInput, "billing_address_json"); billingAddrJSON != nil {
+		o.BillingAddressJSON = billingAddrJSON
 	}
 
 	var totalPrice float64

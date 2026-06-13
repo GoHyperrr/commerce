@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/GoHyperrr/mdk"
 )
@@ -64,6 +66,32 @@ func (m *Module) Routes() []mdk.Route {
 // Repo returns the direct repository data-access client.
 func (m *Module) Repo() *Repository {
 	return m.repo
+}
+
+func (m *Module) ListResources(ctx context.Context) ([]mdk.MCPResource, error) {
+	return []mdk.MCPResource{
+		{
+			URI:         "storesettings://current",
+			Name:        "Store Settings",
+			Description: "Current locale, currency, timezone, and brand info settings for the ecommerce store.",
+			MimeType:    "application/json",
+		},
+	}, nil
+}
+
+func (m *Module) ReadResource(ctx context.Context, uri string) (string, error) {
+	if uri != "storesettings://current" {
+		return "", fmt.Errorf("resource not found")
+	}
+	settings, err := m.repo.Get(ctx)
+	if err != nil {
+		return "", err
+	}
+	dataBytes, err := json.Marshal(settings)
+	if err != nil {
+		return "", err
+	}
+	return string(dataBytes), nil
 }
 
 func init() {

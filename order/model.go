@@ -17,12 +17,19 @@ const (
 
 // Order represents a finalized commerce transaction.
 type Order struct {
-	ID         string         `gorm:"primaryKey" json:"id"`
-	CustomerID string         `gorm:"index" json:"customer_id"`
-	Status     OrderStatus    `gorm:"not null" json:"status"`
-	TotalPrice float64        `json:"total_price"`
-	Items      []OrderItem    `gorm:"foreignKey:OrderID" json:"items"`
-	CreatedAt  time.Time      `json:"created_at"`
+	ID                  string         `gorm:"primaryKey" json:"id"`
+	CustomerID          string         `gorm:"index" json:"customer_id"`
+	Status              OrderStatus    `gorm:"not null" json:"status"`
+	TotalPrice          float64        `json:"total_price"`
+	ShippingAddressID   *string        `json:"shipping_address_id"`
+	BillingAddressID    *string        `json:"billing_address_id"`
+	ShippingAddressJSON *string        `json:"shipping_address_json"`
+	BillingAddressJSON  *string        `json:"billing_address_json"`
+	PaymentMethod       string         `json:"payment_method"`
+	ShippingCarrier     string         `json:"shipping_carrier"`
+	ShippingMethod      string         `json:"shipping_method"`
+	Items               []OrderItem    `gorm:"foreignKey:OrderID" json:"items"`
+	CreatedAt           time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 }

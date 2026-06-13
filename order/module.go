@@ -32,13 +32,19 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 	// Register Fulfillment Saga
 	_ = rt.Workflows().Register(mdk.Workflow{
 		ID:          "fulfillment.v1",
-		Name:        "Fulfillment Workflow",
-		Description: "Orchestrates the full order lifecycle including inventory reservation, payment processing, and shipment creation.",
+		Name:        "fulfillment.v1",
+		Description: "Orchestrates the full order lifecycle including inventory reservation, payment processing, and shipment creation. Can be invoked directly with a cart_id and checkout details.",
 		ExposeToAI:  true,
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"customer_id": map[string]any{"type": "string"},
+				"customer_id":         map[string]any{"type": "string"},
+				"cart_id":             map[string]any{"type": "string"},
+				"shipping_address_id": map[string]any{"type": "string"},
+				"billing_address_id":  map[string]any{"type": "string"},
+				"payment_method":      map[string]any{"type": "string"},
+				"shipping_carrier":    map[string]any{"type": "string"},
+				"shipping_method":     map[string]any{"type": "string"},
 				"items": map[string]any{
 					"type": "array",
 					"items": map[string]any{
@@ -46,7 +52,9 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 						"properties": map[string]any{
 							"product_id": map[string]any{"type": "string"},
 							"quantity":   map[string]any{"type": "integer"},
+							"price":      map[string]any{"type": "number"},
 						},
+						"required": []string{"product_id", "quantity"},
 					},
 				},
 			},
@@ -129,6 +137,12 @@ func (m *Module) ListResources(ctx context.Context) ([]mdk.MCPResource, error) {
 			Description: "Real-time fulfillment status of order " + o.ID,
 			MimeType:    "application/json",
 		})
+		res = append(res, mdk.MCPResource{
+			URI:         "order://" + o.ID,
+			Name:        "Order: " + o.ID,
+			Description: "Fulfillment and payment details of order " + o.ID,
+			MimeType:    "application/json",
+		})
 	}
 	return res, nil
 }
@@ -138,29 +152,44 @@ func (m *Module) ReadResource(ctx context.Context, uri string) (string, error) {
 		return "", fmt.Errorf("order repository not initialized")
 	}
 	var orderID string
-	n, err := fmt.Sscanf(uri, "order://%s", &orderID)
-	if err != nil || n != 1 {
-		return "", fmt.Errorf("invalid URI format")
+	var isStatus bool
+	if strings.HasSuffix(uri, "/status") {
+		n, err := fmt.Sscanf(uri, "order://%s", &orderID)
+		if err != nil || n != 1 {
+			return "", fmt.Errorf("invalid URI format")
+		}
+		orderID = strings.TrimSuffix(orderID, "/status")
+		isStatus = true
+	} else {
+		n, err := fmt.Sscanf(uri, "order://%s", &orderID)
+		if err != nil || n != 1 {
+			return "", fmt.Errorf("invalid URI format")
+		}
 	}
-	orderID = strings.TrimSuffix(orderID, "/status")
 
 	o, err := m.repo.GetByID(ctx, orderID)
 	if err != nil {
 		return "", err
 	}
 
-	data := map[string]any{
-		"order_id":    o.ID,
-		"customer_id": o.CustomerID,
-		"status":      string(o.Status),
-		"total_price": o.TotalPrice,
+	if isStatus {
+		data := map[string]any{
+			"order_id":    o.ID,
+			"customer_id": o.CustomerID,
+			"status":      string(o.Status),
+			"total_price": o.TotalPrice,
+		}
+		jsonBytes, err := json.Marshal(data)
+		if err != nil {
+			return "", err
+		}
+		return string(jsonBytes), nil
 	}
 
-	jsonBytes, err := json.Marshal(data)
+	jsonBytes, err := json.Marshal(o)
 	if err != nil {
 		return "", err
 	}
-
 	return string(jsonBytes), nil
 }
 

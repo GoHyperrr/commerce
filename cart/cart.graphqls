@@ -6,7 +6,7 @@ extend type Query {
 extend type Mutation {
   addItemToCart(cartId: ID!, input: AddItemInput!): Cart!
   removeItemFromCart(cartId: ID!, itemId: ID!): Cart!
-  checkoutCart(cartId: ID!): Boolean!
+  checkoutCart(cartId: ID!, input: CheckoutInput): Boolean!
 }
 
 type Cart {
@@ -14,6 +14,13 @@ type Cart {
   customerId: String!
   status: String!
   items: [CartItem!]!
+  shippingAddressId: String
+  billingAddressId: String
+  shippingAddressJson: String
+  billingAddressJson: String
+  paymentMethod: String
+  shippingCarrier: String
+  shippingMethod: String
 }
 
 type CartItem {

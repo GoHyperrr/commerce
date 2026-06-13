@@ -2,11 +2,49 @@ package cart
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/GoHyperrr/mdk"
 	"github.com/google/uuid"
 )
+
+func getStringOrPointer(m map[string]any, key string) *string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return nil
+	}
+	if s, ok := v.(string); ok {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+	if sp, ok := v.(*string); ok {
+		if sp == nil || *sp == "" {
+			return nil
+		}
+		return sp
+	}
+	return nil
+}
+
+func getStringVal(m map[string]any, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	if sp, ok := v.(*string); ok {
+		if sp == nil {
+			return ""
+		}
+		return *sp
+	}
+	return ""
+}
 
 // AddItem handles adding an item to a cart via workflow.
 func (m *Module) AddItem(ctx context.Context, input any) (any, error) {
@@ -122,6 +160,24 @@ func (m *Module) Checkout(ctx context.Context, input any) (any, error) {
 
 	if len(c.Items) == 0 {
 		return nil, fmt.Errorf("cart is empty")
+	}
+
+	// Populate checkout parameters if provided
+	c.ShippingAddressID = getStringOrPointer(workflowInput, "shipping_address_id")
+	c.BillingAddressID = getStringOrPointer(workflowInput, "billing_address_id")
+	c.PaymentMethod = getStringVal(workflowInput, "payment_method")
+	c.ShippingCarrier = getStringVal(workflowInput, "shipping_carrier")
+	c.ShippingMethod = getStringVal(workflowInput, "shipping_method")
+
+	if shippingAddr, ok := workflowInput["shipping_address"]; ok && shippingAddr != nil {
+		addrBytes, _ := json.Marshal(shippingAddr)
+		addrStr := string(addrBytes)
+		c.ShippingAddressJSON = &addrStr
+	}
+	if billingAddr, ok := workflowInput["billing_address"]; ok && billingAddr != nil {
+		addrBytes, _ := json.Marshal(billingAddr)
+		addrStr := string(addrBytes)
+		c.BillingAddressJSON = &addrStr
 	}
 
 	c.Status = CartCompleted

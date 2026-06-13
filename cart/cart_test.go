@@ -66,11 +66,25 @@ func TestCartWorkflow(t *testing.T) {
 		c := &Cart{ID: "cart1", Items: []CartItem{{ID: "i1", CartID: "cart1", ProductID: "p1", Quantity: 1}}, Status: CartActive}
 		mod.Repo().Save(context.Background(), c)
 
-		_, err := runner.ExecuteSync(context.Background(), "checkout_1", "cart.checkout", map[string]any{"cart_id": "cart1"})
+		input := map[string]any{
+			"cart_id":             "cart1",
+			"shipping_address_id": "addr1",
+			"billing_address_id":  "addr2",
+			"payment_method":      "credit_card",
+			"shipping_carrier":    "UPS",
+			"shipping_method":     "next_day",
+		}
+
+		_, err := runner.ExecuteSync(context.Background(), "checkout_1", "cart.checkout", input)
 		if err != nil { t.Fatalf("workflow failed: %v", err) }
 
 		final, _ := mod.Repo().GetByID(context.Background(), "cart1")
 		if final.Status != CartCompleted { t.Errorf("expected COMPLETED status, got %s", final.Status) }
+		if final.ShippingAddressID == nil || *final.ShippingAddressID != "addr1" { t.Errorf("expected shipping_address_id addr1, got %v", final.ShippingAddressID) }
+		if final.BillingAddressID == nil || *final.BillingAddressID != "addr2" { t.Errorf("expected billing_address_id addr2, got %v", final.BillingAddressID) }
+		if final.PaymentMethod != "credit_card" { t.Errorf("expected payment_method credit_card, got %s", final.PaymentMethod) }
+		if final.ShippingCarrier != "UPS" { t.Errorf("expected shipping_carrier UPS, got %s", final.ShippingCarrier) }
+		if final.ShippingMethod != "next_day" { t.Errorf("expected shipping_method next_day, got %s", final.ShippingMethod) }
 	})
 
 	t.Run("Handler Error Cases", func(t *testing.T) {

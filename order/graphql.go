@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/GoHyperrr/commerce/cart"
+	"github.com/GoHyperrr/commerce/customer"
 	"github.com/google/uuid"
 )
 
@@ -31,7 +32,7 @@ func (m *Module) FieldResolvers() map[string]any {
 	return nil
 }
 
-func (m *Module) CreateOrderFromCart(ctx context.Context, cartID string) (*Order, error) {
+func (m *Module) CreateOrderFromCart(ctx context.Context, cartID string, input *cart.CheckoutInput) (*Order, error) {
 	cartModRaw, ok := m.rt.Module("commerce.cart")
 	if !ok {
 		return nil, fmt.Errorf("cart module not found")
@@ -60,10 +61,94 @@ func (m *Module) CreateOrderFromCart(ctx context.Context, cartID string) (*Order
 		})
 	}
 
+	shippingAddressID := ""
+	billingAddressID := ""
+	var shippingAddress *customer.CreateAddressInput
+	var billingAddress *customer.CreateAddressInput
+	var shippingAddressJSON *string
+	var billingAddressJSON *string
+	paymentMethod := ""
+	var paymentDetails map[string]any
+	shippingCarrier := ""
+	shippingMethod := ""
+
+	if input != nil {
+		if input.ShippingAddressID != nil {
+			shippingAddressID = *input.ShippingAddressID
+		}
+		if input.BillingAddressID != nil {
+			billingAddressID = *input.BillingAddressID
+		}
+		shippingAddress = input.ShippingAddress
+		billingAddress = input.BillingAddress
+		if input.PaymentMethod != nil {
+			paymentMethod = *input.PaymentMethod
+		}
+		paymentDetails = input.PaymentDetails
+		if input.ShippingCarrier != nil {
+			shippingCarrier = *input.ShippingCarrier
+		}
+		if input.ShippingMethod != nil {
+			shippingMethod = *input.ShippingMethod
+		}
+	}
+
+	// Fallback to cart fields if input doesn't provide them
+	if shippingAddressID == "" && c.ShippingAddressID != nil {
+		shippingAddressID = *c.ShippingAddressID
+	}
+	if billingAddressID == "" && c.BillingAddressID != nil {
+		billingAddressID = *c.BillingAddressID
+	}
+	if shippingAddress == nil && shippingAddressID == "" && c.ShippingAddressJSON != nil {
+		shippingAddressJSON = c.ShippingAddressJSON
+	}
+	if billingAddress == nil && billingAddressID == "" && c.BillingAddressJSON != nil {
+		billingAddressJSON = c.BillingAddressJSON
+	}
+	if paymentMethod == "" {
+		paymentMethod = c.PaymentMethod
+	}
+	if shippingCarrier == "" {
+		shippingCarrier = c.ShippingCarrier
+	}
+	if shippingMethod == "" {
+		shippingMethod = c.ShippingMethod
+	}
+
 	workflowInput := map[string]any{
 		"customer_id": c.CustomerID,
 		"cart_id":     c.ID,
 		"items":       items,
+	}
+
+	if shippingAddressID != "" {
+		workflowInput["shipping_address_id"] = shippingAddressID
+	}
+	if billingAddressID != "" {
+		workflowInput["billing_address_id"] = billingAddressID
+	}
+	if shippingAddress != nil {
+		workflowInput["shipping_address"] = shippingAddress
+	} else if shippingAddressJSON != nil {
+		workflowInput["shipping_address_json"] = *shippingAddressJSON
+	}
+	if billingAddress != nil {
+		workflowInput["billing_address"] = billingAddress
+	} else if billingAddressJSON != nil {
+		workflowInput["billing_address_json"] = *billingAddressJSON
+	}
+	if paymentMethod != "" {
+		workflowInput["payment_method"] = paymentMethod
+	}
+	if paymentDetails != nil {
+		workflowInput["payment_details"] = paymentDetails
+	}
+	if shippingCarrier != "" {
+		workflowInput["shipping_carrier"] = shippingCarrier
+	}
+	if shippingMethod != "" {
+		workflowInput["shipping_method"] = shippingMethod
 	}
 
 	executor, ok := m.rt.Workflows().(syncExecutor)

@@ -3,6 +3,7 @@ scalar Map
 extend type Query {
   getProduct(id: ID!): Product
   listProducts: [Product!]!
+  getProductsByTaxonomy(termId: ID!): [Product!]!
 }
 
 extend type Mutation {

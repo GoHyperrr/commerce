@@ -102,7 +102,7 @@ func (m *Module) RemoveItemFromCart(ctx context.Context, cartID string, itemID s
 	return &domainRes, nil
 }
 
-func (m *Module) CheckoutCart(ctx context.Context, cartID string) (bool, error) {
+func (m *Module) CheckoutCart(ctx context.Context, cartID string, input *CheckoutInput) (bool, error) {
 	executor, ok := m.rt.Workflows().(syncExecutor)
 	if !ok {
 		return false, fmt.Errorf("workflow engine does not support synchronous execution")
@@ -110,6 +110,33 @@ func (m *Module) CheckoutCart(ctx context.Context, cartID string) (bool, error) 
 
 	workflowInput := map[string]any{
 		"cart_id": cartID,
+	}
+
+	if input != nil {
+		if input.ShippingAddressID != nil {
+			workflowInput["shipping_address_id"] = *input.ShippingAddressID
+		}
+		if input.BillingAddressID != nil {
+			workflowInput["billing_address_id"] = *input.BillingAddressID
+		}
+		if input.ShippingAddress != nil {
+			workflowInput["shipping_address"] = input.ShippingAddress
+		}
+		if input.BillingAddress != nil {
+			workflowInput["billing_address"] = input.BillingAddress
+		}
+		if input.PaymentMethod != nil {
+			workflowInput["payment_method"] = *input.PaymentMethod
+		}
+		if input.PaymentDetails != nil {
+			workflowInput["payment_details"] = input.PaymentDetails
+		}
+		if input.ShippingCarrier != nil {
+			workflowInput["shipping_carrier"] = *input.ShippingCarrier
+		}
+		if input.ShippingMethod != nil {
+			workflowInput["shipping_method"] = *input.ShippingMethod
+		}
 	}
 
 	execID := "checkout_" + uuid.New().String()

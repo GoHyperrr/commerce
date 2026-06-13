@@ -10,8 +10,9 @@ import (
 
 func (m *Module) Queries() map[string]any {
 	return map[string]any{
-		"getProduct":   m.GetProduct,
-		"listProducts": m.ListProducts,
+		"getProduct":            m.GetProduct,
+		"listProducts":          m.ListProducts,
+		"getProductsByTaxonomy": m.GetProductsByTaxonomy,
 	}
 }
 
@@ -131,6 +132,34 @@ func (m *Module) GetProduct(ctx context.Context, id string) (*Product, error) {
 
 func (m *Module) ListProducts(ctx context.Context) ([]*Product, error) {
 	return m.repo.List(ctx)
+}
+
+func (m *Module) GetProductsByTaxonomy(ctx context.Context, termID string) ([]*Product, error) {
+	var productIDs []string
+	err := m.rt.DB().WithContext(ctx).Table("taxonomy_relations").
+		Where("term_id = ? AND resource_type = ?", termID, "product").
+		Pluck("resource_id", &productIDs).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query taxonomy relations: %w", err)
+	}
+
+	if len(productIDs) == 0 {
+		return []*Product{}, nil
+	}
+
+	var products []*Product
+	err = m.rt.DB().WithContext(ctx).
+		Preload("Options").
+		Preload("Variants").
+		Preload("Variants.Options").
+		Preload("Images").
+		Where("id IN ?", productIDs).
+		Find(&products).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch products by IDs: %w", err)
+	}
+
+	return products, nil
 }
 
 func decodeResult(src any, dest any) error {

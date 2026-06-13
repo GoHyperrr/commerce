@@ -85,8 +85,13 @@ func TestOrderWorkflow(t *testing.T) {
 	_ = runner.Register(wf)
 
 	input := map[string]any{
-		"customer_id": "cust1",
-		"cart_id":     "cart1",
+		"customer_id":         "cust1",
+		"cart_id":             "cart1",
+		"shipping_address_id": "addr1",
+		"billing_address_id":  "addr2",
+		"payment_method":      "stripe",
+		"shipping_carrier":    "FedEx",
+		"shipping_method":     "ground",
 		"items": []any{
 			map[string]any{"product_id": "p1", "quantity": 1.0, "price": 100.0},
 		},
@@ -115,6 +120,11 @@ func TestOrderWorkflow(t *testing.T) {
 		if o.Status != OrderPaid {
 			t.Errorf("expected PAID status, got %s", o.Status)
 		}
+		if o.ShippingAddressID == nil || *o.ShippingAddressID != "addr1" { t.Errorf("expected addr1, got %v", o.ShippingAddressID) }
+		if o.BillingAddressID == nil || *o.BillingAddressID != "addr2" { t.Errorf("expected addr2, got %v", o.BillingAddressID) }
+		if o.PaymentMethod != "stripe" { t.Errorf("expected stripe, got %s", o.PaymentMethod) }
+		if o.ShippingCarrier != "FedEx" { t.Errorf("expected FedEx, got %s", o.ShippingCarrier) }
+		if o.ShippingMethod != "ground" { t.Errorf("expected ground, got %s", o.ShippingMethod) }
 
 		// Verify events
 		foundCreated := false
