@@ -10,15 +10,20 @@ This repository contains high-performance, decoupled commerce sub-modules for ca
 ## 📦 Sub-Modules
 
 * **`product`**: Product catalog management and price/metadata validation.
+* **`taxonomy`**: Categories, tags, collections, and catalog hierarchies.
 * **`cart`**: Active customer shopping cart maintenance and validation.
 * **`order`**: Orchestrates checkout, payment reservation, and shipment workflow DAGs.
+* **`payments`**: Pluggable transaction processing with Stripe, Razorpay, and Mock gateways, integrated as saga workflows.
 * **`fulfillment`**: Pluggable inventory checkouts and shipment details tracking.
 * **`finance`**: Pluggable transaction processing and saga rollback/refund compensations.
+* **`store`**: Store configuration, settings, and business profile settings.
 * **`marketing`**: Coupon code calculations and customer loyalty point rewards.
 * **`notification`**: Dynamic email, SMS, and push notifications routing.
 * **`search`**: Low-latency, full-text product search indexing.
 * **`customer`**: Customer profiling, segmentation workflows, and AI-driven personas.
 * **`support`**: Ticket management and autonomous AI support agent dispatch.
+* **`analytics`**: eCommerce analytics, traffic tracking, and conversion reporting.
+* **`seo`**: Search Engine Optimization metadata generators for products, taxonomies, and pages.
 
 ---
 
