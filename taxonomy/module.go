@@ -89,11 +89,123 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		},
 	})
 
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "taxonomy.list",
+		Name:        "taxonomy.list",
+		Description: "Retrieve a list of all taxonomy category systems.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+		},
+		Steps: []mdk.Step{
+			{ID: "list", Name: "List Taxonomies", Uses: "taxonomy.list_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "taxonomy.get_term_tree",
+		Name:        "taxonomy.get_term_tree",
+		Description: "Retrieve the hierarchical term tree structure under a taxonomy.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"taxonomyId": map[string]any{"type": "string"},
+			},
+			"required": []string{"taxonomyId"},
+		},
+		Steps: []mdk.Step{
+			{ID: "get_term_tree", Name: "Get Term Tree", Uses: "taxonomy.get_term_tree_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "taxonomy.get_by_code",
+		Name:        "taxonomy.get_by_code",
+		Description: "Retrieve details of a taxonomy by its unique code.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"code": map[string]any{"type": "string"},
+			},
+			"required": []string{"code"},
+		},
+		Steps: []mdk.Step{
+			{ID: "get_by_code", Name: "Get Taxonomy By Code", Uses: "taxonomy.get_by_code_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "taxonomy.get_term_by_slug",
+		Name:        "taxonomy.get_term_by_slug",
+		Description: "Retrieve details of an individual term by its unique slug.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"slug": map[string]any{"type": "string"},
+			},
+			"required": []string{"slug"},
+		},
+		Steps: []mdk.Step{
+			{ID: "get_term_by_slug", Name: "Get Term By Slug", Uses: "taxonomy.get_term_by_slug_step"},
+		},
+	})
+
 	_ = rt.Workflows().RegisterHandler("taxonomy.create_step", m.CreateTaxonomyStep)
 	_ = rt.Workflows().RegisterHandler("taxonomy.create_term_step", m.CreateTermStep)
 	_ = rt.Workflows().RegisterHandler("taxonomy.link_step", m.LinkStep)
+	_ = rt.Workflows().RegisterHandler("taxonomy.list_step", m.ListTaxonomiesStep)
+	_ = rt.Workflows().RegisterHandler("taxonomy.get_term_tree_step", m.GetTermTreeStep)
+	_ = rt.Workflows().RegisterHandler("taxonomy.get_by_code_step", m.GetTaxonomyByCodeStep)
+	_ = rt.Workflows().RegisterHandler("taxonomy.get_term_by_slug_step", m.GetTermBySlugStep)
 
 	return nil
+}
+
+func (m *Module) ListTaxonomiesStep(sCtx mdk.StepContext) mdk.StepResult {
+	list, err := m.ListTaxonomies(sCtx.Ctx)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"taxonomies": list}}
+}
+
+func (m *Module) GetTermTreeStep(sCtx mdk.StepContext) mdk.StepResult {
+	taxonomyID, _ := sCtx.Input["taxonomyId"].(string)
+	if taxonomyID == "" {
+		return mdk.StepResult{Err: fmt.Errorf("taxonomyId required")}
+	}
+	roots, err := m.GetTermTree(sCtx.Ctx, taxonomyID)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"terms": roots}}
+}
+
+func (m *Module) GetTaxonomyByCodeStep(sCtx mdk.StepContext) mdk.StepResult {
+	code, _ := sCtx.Input["code"].(string)
+	if code == "" {
+		return mdk.StepResult{Err: fmt.Errorf("code required")}
+	}
+	t, err := m.GetTaxonomy(sCtx.Ctx, code)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"taxonomy": t}}
+}
+
+func (m *Module) GetTermBySlugStep(sCtx mdk.StepContext) mdk.StepResult {
+	slug, _ := sCtx.Input["slug"].(string)
+	if slug == "" {
+		return mdk.StepResult{Err: fmt.Errorf("slug required")}
+	}
+	t, err := m.GetTerm(sCtx.Ctx, slug)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"term": t}}
 }
 
 func (m *Module) CreateTaxonomyStep(sCtx mdk.StepContext) mdk.StepResult {

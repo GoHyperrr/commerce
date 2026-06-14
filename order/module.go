@@ -96,12 +96,120 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		},
 	})
 
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "order.get",
+		Name:        "order.get",
+		Description: "Retrieve order details by its unique ID.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{"type": "string"},
+			},
+			"required": []string{"id"},
+		},
+		Steps: []mdk.Step{
+			{ID: "get", Name: "Get Order", Uses: "order.get_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "order.list",
+		Name:        "order.list",
+		Description: "Retrieve a list of all orders, optionally filtered by customer ID.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"customer_id": map[string]any{"type": "string"},
+			},
+		},
+		Steps: []mdk.Step{
+			{ID: "list", Name: "List Orders", Uses: "order.list_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "order.update_status",
+		Name:        "order.update_status",
+		Description: "Update the processing status of an order.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":     map[string]any{"type": "string"},
+				"status": map[string]any{"type": "string", "enum": []string{"PENDING", "PAID", "FULFILLED", "CANCELLED"}},
+			},
+			"required": []string{"id", "status"},
+		},
+		Steps: []mdk.Step{
+			{ID: "update_status", Name: "Update Status", Uses: "order.update_status_step"},
+		},
+	})
+
 	// Register Handlers
 	_ = rt.Workflows().RegisterHandler(TaskCreateOrder, m.CreateOrderStep)
 	_ = rt.Workflows().RegisterHandler(TaskFinalizeOrder, m.FinalizeOrderStep)
 	_ = rt.Workflows().RegisterHandler(TaskCompensatePayment, m.CompensatePaymentStep)
+	_ = rt.Workflows().RegisterHandler("order.get_step", m.GetOrderStep)
+	_ = rt.Workflows().RegisterHandler("order.list_step", m.ListOrdersStep)
+	_ = rt.Workflows().RegisterHandler("order.update_status_step", m.UpdateOrderStatusStep)
 
 	return nil
+}
+
+func (m *Module) GetOrderStep(sCtx mdk.StepContext) mdk.StepResult {
+	id, _ := sCtx.Input["id"].(string)
+	if id == "" {
+		return mdk.StepResult{Err: fmt.Errorf("id required")}
+	}
+	o, err := m.GetOrder(sCtx.Ctx, id)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"order": o}}
+}
+
+func (m *Module) ListOrdersStep(sCtx mdk.StepContext) mdk.StepResult {
+	customerID, _ := sCtx.Input["customer_id"].(string)
+	if customerID != "" {
+		orders, err := m.ListCustomerOrders(sCtx.Ctx, customerID)
+		if err != nil {
+			return mdk.StepResult{Err: err}
+		}
+		return mdk.StepResult{Output: map[string]any{"orders": orders}}
+	}
+
+	orders, err := m.ListOrders(sCtx.Ctx)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"orders": orders}}
+}
+
+func (m *Module) UpdateOrderStatusStep(sCtx mdk.StepContext) mdk.StepResult {
+	id, _ := sCtx.Input["id"].(string)
+	status, _ := sCtx.Input["status"].(string)
+
+	if id == "" {
+		return mdk.StepResult{Err: fmt.Errorf("id required")}
+	}
+	if status == "" {
+		return mdk.StepResult{Err: fmt.Errorf("status required")}
+	}
+
+	o, err := m.GetOrder(sCtx.Ctx, id)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+
+	o.Status = OrderStatus(status)
+	err = m.repo.Save(sCtx.Ctx, o)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+
+	return mdk.StepResult{Output: map[string]any{"order": o}}
 }
 
 func (m *Module) Shutdown(ctx context.Context) error {

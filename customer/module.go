@@ -107,10 +107,101 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		},
 	})
 
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "customer.get",
+		Name:        "customer.get",
+		Description: "Retrieve a customer profile by ID or email address.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":    map[string]any{"type": "string"},
+				"email": map[string]any{"type": "string"},
+			},
+		},
+		Steps: []mdk.Step{
+			{ID: "get", Name: "Get Customer", Uses: "customer.get_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "customer.list",
+		Name:        "customer.list",
+		Description: "Retrieve a list of all customer profiles.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+		},
+		Steps: []mdk.Step{
+			{ID: "list", Name: "List Customers", Uses: "customer.list_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "customer.delete",
+		Name:        "customer.delete",
+		Description: "Delete a customer record by ID.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{"type": "string"},
+			},
+			"required": []string{"id"},
+		},
+		Steps: []mdk.Step{
+			{ID: "delete", Name: "Delete Customer", Uses: "customer.delete_step"},
+		},
+	})
+
 	_ = rt.Workflows().RegisterHandler("customer.create_profile", m.CreateProfileStep)
 	_ = rt.Workflows().RegisterHandler("customer.add_address_step", m.AddAddressStepHandler)
+	_ = rt.Workflows().RegisterHandler("customer.get_step", m.GetCustomerStep)
+	_ = rt.Workflows().RegisterHandler("customer.list_step", m.ListCustomersStep)
+	_ = rt.Workflows().RegisterHandler("customer.delete_step", m.DeleteCustomerStepHandler)
 
 	return nil
+}
+
+func (m *Module) GetCustomerStep(sCtx mdk.StepContext) mdk.StepResult {
+	id, _ := sCtx.Input["id"].(string)
+	email, _ := sCtx.Input["email"].(string)
+
+	if id != "" {
+		c, err := m.GetCustomer(sCtx.Ctx, id)
+		if err != nil {
+			return mdk.StepResult{Err: err}
+		}
+		return mdk.StepResult{Output: map[string]any{"customer": c}}
+	} else if email != "" {
+		var c Customer
+		err := m.rt.DB().WithContext(sCtx.Ctx).First(&c, "email = ?", email).Error
+		if err != nil {
+			return mdk.StepResult{Err: err}
+		}
+		return mdk.StepResult{Output: map[string]any{"customer": &c}}
+	}
+	return mdk.StepResult{Err: fmt.Errorf("id or email is required")}
+}
+
+func (m *Module) ListCustomersStep(sCtx mdk.StepContext) mdk.StepResult {
+	customers, err := m.ListCustomers(sCtx.Ctx)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"customers": customers}}
+}
+
+func (m *Module) DeleteCustomerStepHandler(sCtx mdk.StepContext) mdk.StepResult {
+	id, _ := sCtx.Input["id"].(string)
+	if id == "" {
+		return mdk.StepResult{Err: fmt.Errorf("id required")}
+	}
+	ok, err := m.DeleteCustomer(sCtx.Ctx, id)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"success": ok}}
 }
 
 func (m *Module) CreateProfileStep(sCtx mdk.StepContext) mdk.StepResult {

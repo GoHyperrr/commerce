@@ -99,11 +99,71 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		},
 	})
 
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "cart.get",
+		Name:        "cart.get",
+		Description: "Retrieve shopping cart details by its unique ID.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{"type": "string"},
+			},
+			"required": []string{"id"},
+		},
+		Steps: []mdk.Step{
+			{ID: "get", Name: "Get Cart", Uses: "cart.get_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "cart.create",
+		Name:        "cart.create",
+		Description: "Create a new shopping cart or retrieve the active one for a customer.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"customer_id": map[string]any{"type": "string"},
+			},
+			"required": []string{"customer_id"},
+		},
+		Steps: []mdk.Step{
+			{ID: "create", Name: "Create Cart", Uses: "cart.create_step"},
+		},
+	})
+
 	_ = rt.Workflows().RegisterHandler("cart.add_item", m.AddItemStep)
 	_ = rt.Workflows().RegisterHandler("cart.remove_item", m.RemoveItemStep)
 	_ = rt.Workflows().RegisterHandler("cart.checkout", m.CheckoutStep)
+	_ = rt.Workflows().RegisterHandler("cart.get_step", m.GetCartStep)
+	_ = rt.Workflows().RegisterHandler("cart.create_step", m.CreateCartStep)
 
 	return nil
+}
+
+func (m *Module) GetCartStep(sCtx mdk.StepContext) mdk.StepResult {
+	id, _ := sCtx.Input["id"].(string)
+	if id == "" {
+		return mdk.StepResult{Err: fmt.Errorf("id required")}
+	}
+	c, err := m.GetCart(sCtx.Ctx, id)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"cart": c}}
+}
+
+func (m *Module) CreateCartStep(sCtx mdk.StepContext) mdk.StepResult {
+	customerID, _ := sCtx.Input["customer_id"].(string)
+	if customerID == "" {
+		return mdk.StepResult{Err: fmt.Errorf("customer_id required")}
+	}
+	c, err := m.GetActiveCart(sCtx.Ctx, customerID)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"cart": c}}
 }
 
 func (m *Module) ListResources(ctx context.Context) ([]mdk.MCPResource, error) {

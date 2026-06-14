@@ -45,7 +45,89 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		_ = rt.DB().Create(&defaultSettings)
 	}
 
+	// Register Workflows
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "store.get_settings",
+		Name:        "store.get_settings",
+		Description: "Retrieve the current global store settings.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+		},
+		Steps: []mdk.Step{
+			{ID: "get", Name: "Get Settings", Uses: "store.get_settings_step"},
+		},
+	})
+
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "store.update_settings",
+		Name:        "store.update_settings",
+		Description: "Update global store settings properties.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":            map[string]any{"type": "string"},
+				"host":            map[string]any{"type": "string"},
+				"email":           map[string]any{"type": "string"},
+				"phone":           map[string]any{"type": "string"},
+				"description":     map[string]any{"type": "string"},
+				"currency":        map[string]any{"type": "string"},
+				"locale":          map[string]any{"type": "string"},
+				"timezone":        map[string]any{"type": "string"},
+				"address":         map[string]any{"type": "string"},
+				"city":            map[string]any{"type": "string"},
+				"state":           map[string]any{"type": "string"},
+				"zip":             map[string]any{"type": "string"},
+				"country":         map[string]any{"type": "string"},
+				"robotsTxt":       map[string]any{"type": "string"},
+				"sitemapUrl":      map[string]any{"type": "string"},
+				"logoUrl":         map[string]any{"type": "string"},
+				"faviconUrl":      map[string]any{"type": "string"},
+				"socialFacebook":  map[string]any{"type": "string"},
+				"socialInstagram": map[string]any{"type": "string"},
+				"socialTwitter":   map[string]any{"type": "string"},
+				"socialLinkedin":  map[string]any{"type": "string"},
+				"socialYoutube":   map[string]any{"type": "string"},
+				"socialPinterest": map[string]any{"type": "string"},
+				"socialTikTok":    map[string]any{"type": "string"},
+			},
+		},
+		Steps: []mdk.Step{
+			{ID: "update", Name: "Update Settings", Uses: "store.update_settings_step"},
+		},
+	})
+
+	// Register step handlers
+	_ = rt.Workflows().RegisterHandler("store.get_settings_step", m.GetSettingsStep)
+	_ = rt.Workflows().RegisterHandler("store.update_settings_step", m.UpdateSettingsStep)
+
 	return nil
+}
+
+func (m *Module) GetSettingsStep(sCtx mdk.StepContext) mdk.StepResult {
+	settings, err := m.GetStoreSettings(sCtx.Ctx)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"settings": settings}}
+}
+
+func (m *Module) UpdateSettingsStep(sCtx mdk.StepContext) mdk.StepResult {
+	ba, err := json.Marshal(sCtx.Input)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	var in UpdateStoreSettingsInput
+	if err := json.Unmarshal(ba, &in); err != nil {
+		return mdk.StepResult{Err: err}
+	}
+
+	settings, err := m.UpdateStoreSettings(sCtx.Ctx, in)
+	if err != nil {
+		return mdk.StepResult{Err: err}
+	}
+	return mdk.StepResult{Output: map[string]any{"settings": settings}}
 }
 
 // Shutdown cleans up resources on application stop.
