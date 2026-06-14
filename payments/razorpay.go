@@ -6,13 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 
 	"github.com/razorpay/razorpay-go"
 )
 
 type RazorpayProvider struct {
-	keyID     string
-	keySecret string
+	keyID      string
+	keySecret  string
+	BaseURL    string       // Custom BaseURL for testing
+	HTTPClient *http.Client // Custom HTTP client for testing
 }
 
 func NewRazorpayProvider(keyID, keySecret string) *RazorpayProvider {
@@ -26,8 +29,19 @@ func (r *RazorpayProvider) ID() string {
 	return "razorpay"
 }
 
+func (r *RazorpayProvider) client() *razorpay.Client {
+	c := razorpay.NewClient(r.keyID, r.keySecret)
+	if r.BaseURL != "" {
+		c.BaseURL = r.BaseURL
+	}
+	if r.HTTPClient != nil {
+		c.HTTPClient = r.HTTPClient
+	}
+	return c
+}
+
 func (r *RazorpayProvider) CreateIntent(ctx context.Context, orderID string, amount float64, currency string) (*PaymentIntent, error) {
-	client := razorpay.NewClient(r.keyID, r.keySecret)
+	client := r.client()
 
 	// Razorpay expects amount in paise (smallest currency unit)
 	paise := int(amount * 100)
@@ -85,7 +99,7 @@ func (r *RazorpayProvider) WriteToHash(h interface {
 }
 
 func (r *RazorpayProvider) Refund(ctx context.Context, transactionID string, amount float64) (string, error) {
-	client := razorpay.NewClient(r.keyID, r.keySecret)
+	client := r.client()
 
 	paise := int(amount * 100)
 

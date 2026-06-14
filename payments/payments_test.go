@@ -4,17 +4,22 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/GoHyperrr/mdk/mdktest"
 	"github.com/glebarez/sqlite"
+	"github.com/stripe/stripe-go/v78"
 	"gorm.io/gorm"
 )
 
@@ -337,4 +342,162 @@ func createSignedJWT(payload any, privKey *ecdsa.PrivateKey) (string, error) {
 	sigB64 := base64.RawURLEncoding.EncodeToString(sigBytes)
 
 	return signingInput + "." + sigB64, nil
+}
+
+func TestStripeIntegration(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup mock Stripe API HTTP server
+	stripeMockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/payment_intents" && r.Method == "POST" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"id": "pi_test_123",
+				"client_secret": "pi_test_123_secret_xyz",
+				"amount": 4999,
+				"currency": "usd",
+				"status": "requires_payment_method"
+			}`))
+			return
+		}
+		if r.URL.Path == "/v1/payment_intents/pi_test_123" && r.Method == "GET" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"id": "pi_test_123",
+				"client_secret": "pi_test_123_secret_xyz",
+				"amount": 4999,
+				"currency": "usd",
+				"status": "succeeded"
+			}`))
+			return
+		}
+		if r.URL.Path == "/v1/refunds" && r.Method == "POST" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"id": "re_test_123"
+			}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error": "not found"}`))
+	}))
+	defer stripeMockServer.Close()
+
+	// Point Stripe Go SDK backend to the mock server
+	backends := stripe.NewBackends(stripeMockServer.Client())
+	apiBackend := backends.API.(*stripe.BackendImplementation)
+	apiBackend.URL = stripeMockServer.URL
+	stripe.SetBackend(stripe.APIBackend, apiBackend)
+
+	provider := NewStripeProvider("sk_test_key")
+
+	// Test ID
+	if provider.ID() != "stripe" {
+		t.Errorf("expected provider ID stripe, got %s", provider.ID())
+	}
+
+	// Test CreateIntent
+	intent, err := provider.CreateIntent(ctx, "order_stripe", 49.99, "usd")
+	if err != nil {
+		t.Fatalf("CreateIntent failed: %v", err)
+	}
+	if intent.ProviderTransactionID != "pi_test_123" {
+		t.Errorf("expected pi_test_123, got %s", intent.ProviderTransactionID)
+	}
+
+	// Test VerifyPayment
+	verified, err := provider.VerifyPayment(ctx, map[string]any{"payment_intent_id": "pi_test_123"})
+	if err != nil {
+		t.Fatalf("VerifyPayment failed: %v", err)
+	}
+	if !verified {
+		t.Errorf("expected payment to be verified")
+	}
+
+	// Test Refund
+	refID, err := provider.Refund(ctx, "pi_test_123", 49.99)
+	if err != nil {
+		t.Fatalf("Refund failed: %v", err)
+	}
+	if refID != "re_test_123" {
+		t.Errorf("expected refund ID re_test_123, got %s", refID)
+	}
+}
+
+func TestRazorpayIntegration(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup mock Razorpay API HTTP server
+	razorpayMockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/orders" && r.Method == "POST" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"id": "order_rzp_123",
+				"status": "created",
+				"amount": 4900,
+				"currency": "INR",
+				"receipt": "order_razorpay"
+			}`))
+			return
+		}
+		if r.URL.Path == "/v1/payments/pay_rzp_123/refund" && r.Method == "POST" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"id": "rfnd_test_123",
+				"payment_id": "pay_rzp_123",
+				"amount": 4900
+			}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error": "not found"}`))
+	}))
+	defer razorpayMockServer.Close()
+
+	provider := NewRazorpayProvider("rzp_test_key", "rzp_test_secret")
+	provider.BaseURL = razorpayMockServer.URL
+	provider.HTTPClient = razorpayMockServer.Client()
+
+	// Test ID
+	if provider.ID() != "razorpay" {
+		t.Errorf("expected provider ID razorpay, got %s", provider.ID())
+	}
+
+	// Test CreateIntent
+	intent, err := provider.CreateIntent(ctx, "order_razorpay", 49.00, "INR")
+	if err != nil {
+		t.Fatalf("CreateIntent failed: %v", err)
+	}
+	if intent.ProviderTransactionID != "order_rzp_123" {
+		t.Errorf("expected order_rzp_123, got %s", intent.ProviderTransactionID)
+	}
+
+	// Test VerifyPayment
+	payload := map[string]any{
+		"razorpay_order_id":   "order_rzp_123",
+		"razorpay_payment_id": "pay_rzp_123",
+	}
+	h := hmac.New(sha256.New, []byte("rzp_test_secret"))
+	_, _ = h.Write([]byte("order_rzp_123|pay_rzp_123"))
+	expectedSig := hex.EncodeToString(h.Sum(nil))
+	payload["razorpay_signature"] = expectedSig
+
+	verified, err := provider.VerifyPayment(ctx, payload)
+	if err != nil {
+		t.Fatalf("VerifyPayment failed: %v", err)
+	}
+	if !verified {
+		t.Errorf("expected payment verification to succeed")
+	}
+
+	// Test Refund
+	refID, err := provider.Refund(ctx, "pay_rzp_123", 49.00)
+	if err != nil {
+		t.Fatalf("Refund failed: %v", err)
+	}
+	if refID != "rfnd_test_123" {
+		t.Errorf("expected refund ID rfnd_test_123, got %s", refID)
+	}
 }
