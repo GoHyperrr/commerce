@@ -172,6 +172,27 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 		},
 	})
 
+	_ = rt.Workflows().Register(mdk.Workflow{
+		ID:          "payments.verify_ap2",
+		Name:        "payments.verify_ap2",
+		Description: "Verify a client-side AP2 payment mandate (SD-JWT-VC) and agent assertion, executing payment on Stripe, Razorpay, or Mock.",
+		ExposeToAI:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"mandate_jwt":     map[string]any{"type": "string"},
+				"agent_assertion": map[string]any{"type": "string"},
+				"order_id":        map[string]any{"type": "string"},
+				"provider":        map[string]any{"type": "string", "enum": []string{"stripe", "razorpay", "mock"}},
+				"payload":         map[string]any{"type": "object"},
+			},
+			"required": []string{"mandate_jwt", "agent_assertion", "order_id", "provider"},
+		},
+		Steps: []mdk.Step{
+			{ID: "verify_ap2", Name: "Verify AP2 Mandate", Uses: "payments.verify_ap2"},
+		},
+	})
+
 	// Register named workflow step handlers
 	_ = rt.Workflows().RegisterHandler("payments.create_intent", m.handlers.CreateIntentStep)
 	_ = rt.Workflows().RegisterHandler("payments.verify", m.handlers.VerifyPaymentStep)
@@ -179,6 +200,7 @@ func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 	_ = rt.Workflows().RegisterHandler("payments.get_transaction_step", m.GetTransactionStep)
 	_ = rt.Workflows().RegisterHandler("payments.list_transactions_step", m.ListTransactionsStep)
 	_ = rt.Workflows().RegisterHandler("payments.list_providers_step", m.ListProvidersStep)
+	_ = rt.Workflows().RegisterHandler("payments.verify_ap2", m.handlers.VerifyAP2Step)
 
 	return nil
 }

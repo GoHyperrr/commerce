@@ -20,6 +20,7 @@ func (m *Module) Mutations() map[string]any {
 	return map[string]any{
 		"createPaymentIntent": m.CreatePaymentIntent,
 		"verifyPayment":       m.VerifyPayment,
+		"verifyPaymentAP2":    m.VerifyPaymentAp2,
 	}
 }
 
@@ -196,6 +197,70 @@ func (m *Module) VerifyPayment(ctx context.Context, orderID string, provider str
 
 	return &PaymentVerificationResult{
 		OrderID: orderID,
+		Status:  statusStr,
+		Message: msg,
+	}, nil
+}
+
+func (m *Module) VerifyPaymentAp2(ctx context.Context, input AP2VerificationInput) (*PaymentVerificationResult, error) {
+	executor, ok := m.rt.Workflows().(syncExecutor)
+	if !ok {
+		return nil, fmt.Errorf("workflow engine does not support synchronous execution")
+	}
+
+	execID := "pay_verify_ap2_" + uuid.New().String()
+
+	inputBytes, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var workflowInput map[string]any
+	if err := json.Unmarshal(inputBytes, &workflowInput); err != nil {
+		return nil, err
+	}
+
+	results, err := executor.ExecuteSync(ctx, execID, "payments.verify_ap2", workflowInput)
+	if err != nil {
+		return &PaymentVerificationResult{
+			OrderID: input.OrderID,
+			Status:  "FAILED",
+			Message: err.Error(),
+		}, nil
+	}
+
+	resRaw, ok := results["verify_ap2"]
+	if !ok {
+		return nil, fmt.Errorf("failed to retrieve verification result from workflow")
+	}
+
+	resMap, ok := resRaw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid result format from verify_ap2 step")
+	}
+
+	txRaw, ok := resMap["transaction"]
+	if !ok {
+		return nil, fmt.Errorf("missing transaction in verify result")
+	}
+
+	txBytes, err := json.Marshal(txRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	var tx PaymentTransaction
+	if err := json.Unmarshal(txBytes, &tx); err != nil {
+		return nil, err
+	}
+
+	statusStr := string(tx.Status)
+	msg := "AP2 Payment verified and charged successfully"
+	if tx.Status != StatusSucceeded {
+		msg = "AP2 Payment verification/charge failed"
+	}
+
+	return &PaymentVerificationResult{
+		OrderID: input.OrderID,
 		Status:  statusStr,
 		Message: msg,
 	}, nil

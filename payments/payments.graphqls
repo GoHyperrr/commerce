@@ -10,7 +10,19 @@ extend type Mutation {
 
   # Verify the payment signature or verification payload (e.g. Razorpay HMAC signature check)
   verifyPayment(orderId: ID!, provider: String!, payload: Map!): PaymentVerificationResult!
+
+  # Verify a client-side AP2 payment mandate (SD-JWT-VC) and agent assertion, charging Stripe/Razorpay/Mock
+  verifyPaymentAP2(input: AP2VerificationInput!): PaymentVerificationResult!
 }
+
+input AP2VerificationInput {
+  mandateJwt: String!
+  agentAssertion: String!
+  orderId: ID!
+  provider: String!
+  payload: Map
+}
+
 
 type PaymentTransaction {
   id: ID!
