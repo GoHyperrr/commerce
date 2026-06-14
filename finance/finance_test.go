@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 type mockOrder struct {
@@ -40,7 +38,7 @@ func (m *flexibleMockOrder) GetTotal() float64 {
 func (m *flexibleMockOrder) GetCustomerID() string { return "" }
 
 func TestFinanceWorkflow(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open("file:memdb_finance_wf?mode=memory&cache=shared"), &gorm.Config{})
+	database, _ := mdktest.SetupSharedTestDB("memdb_finance_wf")
 	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
@@ -149,7 +147,7 @@ func TestFinanceWorkflow(t *testing.T) {
 
 		// DB failure
 		badMod := NewModule()
-		badDB, _ := gorm.Open(sqlite.Open("file:memdb_finance_bad?mode=memory&cache=shared"), &gorm.Config{})
+		badDB, _ := mdktest.SetupSharedTestDB("memdb_finance_bad")
 		sqlDB, _ := badDB.DB()
 		badMod.repo = NewRepository(badDB)
 		sqlDB.Close()
@@ -174,7 +172,7 @@ func TestFinanceWorkflow(t *testing.T) {
 }
 
 func TestFinanceRepository(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open("file:memdb_finance_repo?mode=memory&cache=shared"), &gorm.Config{})
+	database, _ := mdktest.SetupSharedTestDB("memdb_finance_repo")
 	
 	repo := NewRepository(database)
 	_ = database.AutoMigrate(&Payment{})

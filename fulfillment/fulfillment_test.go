@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/GoHyperrr/mdk"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 type mockOrder struct {
@@ -24,12 +22,11 @@ func (m *mockOrder) GetTotal() float64     { return m.TotalPrice }
 func (m *mockOrder) GetCustomerID() string { return m.CustomerID }
 
 func TestFulfillmentWorkflow(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdktest.NewTestRuntime(database)
+	rt, _ := mdktest.NewInMemoryTestRuntime()
 
 	mod := NewModule()
 	_ = mod.Init(context.Background(), rt)
-	_ = database.AutoMigrate(mod.Models()...)
+	_ = rt.DB().AutoMigrate(mod.Models()...)
 	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 	t.Run("Reserve Inventory Success", func(t *testing.T) {
@@ -199,7 +196,7 @@ func TestFulfillmentWorkflow(t *testing.T) {
 }
 
 func TestSupportRepository(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	database, _ := mdktest.SetupTestDB("")
 	
 	repo := NewRepository(database)
 	_ = database.AutoMigrate(&Inventory{}, &Shipment{})

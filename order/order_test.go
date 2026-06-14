@@ -10,15 +10,13 @@ import (
 
 	"github.com/GoHyperrr/mdk"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestOrderWorkflow(t *testing.T) {
 	dbFile := "order_test.db"
 	defer os.Remove(dbFile)
 
-	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	database, _ := mdktest.SetupTestDB(dbFile)
 	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
@@ -171,7 +169,7 @@ func TestOrderWorkflow(t *testing.T) {
 func TestOrderRepository(t *testing.T) {
 	dbFile := "order_repo_test.db"
 	defer os.Remove(dbFile)
-	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	database, _ := mdktest.SetupTestDB(dbFile)
 	
 	repo := NewRepository(database)
 	_ = database.AutoMigrate(&Order{}, &OrderItem{})
@@ -194,7 +192,7 @@ func TestOrderRepository(t *testing.T) {
 	t.Run("Handler Error Cases", func(t *testing.T) {
 		dbFile := "order_err_test.db"
 		defer os.Remove(dbFile)
-		database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+		database, _ := mdktest.SetupTestDB(dbFile)
 		rt := mdktest.NewTestRuntime(database)
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)

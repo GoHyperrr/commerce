@@ -5,18 +5,15 @@ import (
 	"testing"
 
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestCartWorkflow(t *testing.T) {
 	t.Run("Add Item Workflow", func(t *testing.T) {
-		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		rt := mdktest.NewTestRuntime(database)
+		rt, _ := mdktest.NewInMemoryTestRuntime()
 
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)
-		_ = database.AutoMigrate(mod.Models()...)
+		_ = rt.DB().AutoMigrate(mod.Models()...)
 		runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 		c := &Cart{ID: "cart1", CustomerID: "cust1", Status: CartActive}
@@ -33,12 +30,11 @@ func TestCartWorkflow(t *testing.T) {
 	})
 
 	t.Run("Remove Item Workflow", func(t *testing.T) {
-		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		rt := mdktest.NewTestRuntime(database)
+		rt, _ := mdktest.NewInMemoryTestRuntime()
 
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)
-		_ = database.AutoMigrate(mod.Models()...)
+		_ = rt.DB().AutoMigrate(mod.Models()...)
 		runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 		c := &Cart{ID: "cart1", Items: []CartItem{{ID: "i1", CartID: "cart1", ProductID: "p1", Quantity: 1}}, Status: CartActive}
@@ -55,12 +51,11 @@ func TestCartWorkflow(t *testing.T) {
 	})
 
 	t.Run("Checkout Workflow", func(t *testing.T) {
-		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		rt := mdktest.NewTestRuntime(database)
+		rt, _ := mdktest.NewInMemoryTestRuntime()
 
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)
-		_ = database.AutoMigrate(mod.Models()...)
+		_ = rt.DB().AutoMigrate(mod.Models()...)
 		runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 		c := &Cart{ID: "cart1", Items: []CartItem{{ID: "i1", CartID: "cart1", ProductID: "p1", Quantity: 1}}, Status: CartActive}
@@ -88,12 +83,11 @@ func TestCartWorkflow(t *testing.T) {
 	})
 
 	t.Run("Handler Error Cases", func(t *testing.T) {
-		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		rt := mdktest.NewTestRuntime(database)
+		rt, _ := mdktest.NewInMemoryTestRuntime()
 
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)
-		_ = database.AutoMigrate(mod.Models()...)
+		_ = rt.DB().AutoMigrate(mod.Models()...)
 
 		// 1. AddItem - Invalid Input
 		_, err := mod.AddItem(context.Background(), "string")

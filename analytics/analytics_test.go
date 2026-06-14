@@ -7,13 +7,10 @@ import (
 
 	"github.com/GoHyperrr/mdk"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestAnalyticsModule(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdktest.NewTestRuntime(database)
+	rt, _ := mdktest.NewInMemoryTestRuntime()
 
 	testProj := &mdktest.TestProjector{}
 	ctxMod := &mdktest.ProjectorModule{Proj: testProj}
@@ -21,7 +18,7 @@ func TestAnalyticsModule(t *testing.T) {
 
 	mod := NewModule()
 	_ = mod.Init(context.Background(), rt)
-	_ = database.AutoMigrate(mod.Models()...)
+	_ = rt.DB().AutoMigrate(mod.Models()...)
 
 	t.Run("System Stats", func(t *testing.T) {
 		now := time.Now()

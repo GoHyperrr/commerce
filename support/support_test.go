@@ -7,15 +7,13 @@ import (
 
 	"github.com/GoHyperrr/mdk"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestSupportModule(t *testing.T) {
 	dbFile := "support_test.db"
 	defer os.Remove(dbFile)
 
-	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	database, _ := mdktest.SetupTestDB(dbFile)
 	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
@@ -100,7 +98,7 @@ func TestSupportModule(t *testing.T) {
 		badMod := NewModule()
 		dbFile := "support_bad.db"
 		defer os.Remove(dbFile)
-		badDB, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+		badDB, _ := mdktest.SetupTestDB(dbFile)
 		sqlDB, _ := badDB.DB()
 		badMod.repo = NewRepository(badDB)
 		sqlDB.Close()
@@ -112,7 +110,7 @@ func TestSupportModule(t *testing.T) {
 func TestSupportRepository(t *testing.T) {
 	dbFile := "support_repo_test.db"
 	defer os.Remove(dbFile)
-	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	database, _ := mdktest.SetupTestDB(dbFile)
 	
 	repo := NewRepository(database)
 	_ = database.AutoMigrate(&Ticket{}, &Message{})

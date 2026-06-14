@@ -6,15 +6,13 @@ import (
 	"testing"
 
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestCartRepository(t *testing.T) {
 	dbFile := "cart_repo_test.db"
 	defer os.Remove(dbFile)
 
-	database, _ := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	database, _ := mdktest.SetupTestDB(dbFile)
 	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()

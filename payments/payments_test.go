@@ -18,22 +18,18 @@ import (
 	"time"
 
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
 	"github.com/stripe/stripe-go/v78"
-	"gorm.io/gorm"
 )
 
 func TestPayments(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Setup in-memory GORM database
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	rt, err := mdktest.NewInMemoryTestRuntime()
 	if err != nil {
-		t.Fatalf("failed to connect database: %v", err)
+		t.Fatalf("failed to setup test runtime: %v", err)
 	}
-
-	// 2. Setup mock test runtime
-	rt := mdktest.NewTestRuntime(db)
+	db := rt.DB()
 
 	mod := NewModule()
 	// Run migrations

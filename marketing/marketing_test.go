@@ -7,8 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 type mockOrder struct {
@@ -22,7 +20,7 @@ func (m *mockOrder) GetTotal() float64     { return m.TotalPrice }
 func (m *mockOrder) GetCustomerID() string { return m.CustomerID }
 
 func TestMarketingModule(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	database, _ := mdktest.SetupSharedTestDB("")
 	rt := mdktest.NewTestRuntime(database)
 
 	mod := NewModule()
@@ -126,7 +124,7 @@ func TestMarketingModule(t *testing.T) {
 }
 
 func TestMarketingRepository(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	database, _ := mdktest.SetupSharedTestDB("")
 	
 	repo := NewRepository(database)
 	_ = database.AutoMigrate(&Coupon{}, &LoyaltyPoints{})

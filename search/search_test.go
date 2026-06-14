@@ -7,13 +7,10 @@ import (
 	"github.com/GoHyperrr/commerce/product"
 	"github.com/GoHyperrr/mdk"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestSearchModule(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdktest.NewTestRuntime(database)
+	rt, _ := mdktest.NewInMemoryTestRuntime()
 
 	// Mock Product module
 	prodMod := product.NewModule()
@@ -26,7 +23,7 @@ func TestSearchModule(t *testing.T) {
 	var models []any
 	models = append(models, prodMod.Models()...)
 	models = append(models, mod.Models()...)
-	_ = database.AutoMigrate(models...)
+	_ = rt.DB().AutoMigrate(models...)
 	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 	// Seed products
@@ -82,8 +79,7 @@ func TestSearchModule(t *testing.T) {
 		}
 
 		mNoProd := NewModule()
-		mNoProdDB, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		mNoProdRt := mdktest.NewTestRuntime(mNoProdDB)
+		mNoProdRt, _ := mdktest.NewInMemoryTestRuntime()
 		_ = mNoProd.Init(context.Background(), mNoProdRt)
 		_, err = mNoProd.SearchProducts(context.Background(), map[string]any{"input": map[string]any{"query": "x"}})
 		if err == nil {

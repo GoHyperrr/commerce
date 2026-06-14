@@ -6,20 +6,17 @@ import (
 
 	"github.com/GoHyperrr/mdk"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestProductWorkflow(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdktest.NewTestRuntime(database)
+	rt, _ := mdktest.NewInMemoryTestRuntime()
 
 	mod := NewModule()
 	if err := mod.Init(context.Background(), rt); err != nil {
 		t.Fatalf("failed to init module: %v", err)
 	}
 
-	_ = database.AutoMigrate(mod.Models()...)
+	_ = rt.DB().AutoMigrate(mod.Models()...)
 	runner := rt.Workflows().(*mdktest.TestWorkflowEngine)
 
 	t.Run("Create Product Workflow", func(t *testing.T) {
@@ -74,12 +71,11 @@ func TestProductWorkflow(t *testing.T) {
 	})
 
 	t.Run("Handler Error Cases", func(t *testing.T) {
-		database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-		rt := mdktest.NewTestRuntime(database)
+		rt, _ := mdktest.NewInMemoryTestRuntime()
 
 		mod := NewModule()
 		_ = mod.Init(context.Background(), rt)
-		_ = database.AutoMigrate(mod.Models()...)
+		_ = rt.DB().AutoMigrate(mod.Models()...)
 
 		// 1. ValidateProduct - Invalid Input
 		_, err := mod.ValidateProduct(context.Background(), "string")
@@ -123,7 +119,7 @@ func TestProductWorkflow(t *testing.T) {
 		}
 
 		// 5. PersistProduct - Save Failure
-		badDB, _ := gorm.Open(sqlite.Open("fail_save.db"), &gorm.Config{})
+		badDB, _ := mdktest.SetupTestDB("fail_save.db")
 		sqlDB, _ := badDB.DB()
 		sqlDB.Close()
 
@@ -139,7 +135,7 @@ func TestProductWorkflow(t *testing.T) {
 		}
 
 		// 6. UpdateProductDetails - Success (All fields)
-		mod.repo = NewRepository(database) // Ensure we use the good DB
+		mod.repo = NewRepository(rt.DB()) // Ensure we use the good DB
 		p := &Product{
 			ID:          "p_update",
 			Name:        "Old Name",
@@ -174,7 +170,7 @@ func TestProductWorkflow(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for failed save in UpdateProductDetails")
 		}
-		mod.repo = NewRepository(database) // Restore to good DB
+		mod.repo = NewRepository(rt.DB()) // Restore to good DB
 
 		// 8. PersistProduct - Invalid validated data format
 		_, err = mod.PersistProduct(context.Background(), map[string]any{"validate": "not-a-map"})

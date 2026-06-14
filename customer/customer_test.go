@@ -6,16 +6,13 @@ import (
 
 	"github.com/GoHyperrr/mdk"
 	"github.com/GoHyperrr/mdk/mdktest"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestCustomerModule(t *testing.T) {
-	database, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	rt := mdktest.NewTestRuntime(database)
+	rt, _ := mdktest.NewInMemoryTestRuntime()
 
 	mod := NewModule()
-	_ = database.AutoMigrate(mod.Models()...)
+	_ = rt.DB().AutoMigrate(mod.Models()...)
 
 	if err := mod.Init(context.Background(), rt); err != nil {
 		t.Fatalf("failed to initialize customer module: %v", err)
