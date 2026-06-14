@@ -15,9 +15,6 @@ type Module struct {
 }
 
 func NewModule(provider Provider) *Module {
-	if provider == nil {
-		provider = &MockProvider{} // Default to mock
-	}
 	return &Module{provider: provider}
 }
 
@@ -28,6 +25,84 @@ func (m *Module) ID() string {
 func (m *Module) Init(ctx context.Context, rt mdk.Runtime) error {
 	m.rt = rt
 	m.repo = NewRepository(rt.DB())
+
+	if m.provider == nil {
+		// Load default SMTP Config
+		var smtpCfg SMTPConfig
+		if host, ok := rt.Config("smtp_host").(string); ok {
+			smtpCfg.Host = host
+		}
+		if port, ok := rt.Config("smtp_port").(float64); ok {
+			smtpCfg.Port = int(port)
+		} else if portInt, ok := rt.Config("smtp_port").(int); ok {
+			smtpCfg.Port = portInt
+		}
+		if user, ok := rt.Config("smtp_user").(string); ok {
+			smtpCfg.Username = user
+		}
+		if pass, ok := rt.Config("smtp_pass").(string); ok {
+			smtpCfg.Password = pass
+		}
+		if from, ok := rt.Config("smtp_from").(string); ok {
+			smtpCfg.From = from
+		}
+
+		// Load specific SMTP sender profiles if defined under "smtp_senders"
+		smtpSenders := make(map[string]SMTPConfig)
+		if sendersRaw, ok := rt.Config("smtp_senders").(map[string]any); ok {
+			for email, details := range sendersRaw {
+				if detailMap, ok := details.(map[string]any); ok {
+					var sc SMTPConfig
+					sc.Host, _ = detailMap["smtp_host"].(string)
+					if p, ok := detailMap["smtp_port"].(float64); ok {
+						sc.Port = int(p)
+					} else if p, ok := detailMap["smtp_port"].(int); ok {
+						sc.Port = p
+					}
+					sc.Username, _ = detailMap["smtp_user"].(string)
+					sc.Password, _ = detailMap["smtp_pass"].(string)
+					sc.From, _ = detailMap["smtp_from"].(string)
+					if sc.From == "" {
+						sc.From = email
+					}
+					smtpSenders[email] = sc
+				}
+			}
+		}
+
+		// Load default Twilio Config
+		var twilioCfg TwilioWhatsappConfig
+		if sid, ok := rt.Config("twilio_sid").(string); ok {
+			twilioCfg.AccountSID = sid
+		}
+		if token, ok := rt.Config("twilio_token").(string); ok {
+			twilioCfg.AuthToken = token
+		}
+		if from, ok := rt.Config("twilio_from").(string); ok {
+			twilioCfg.From = from
+		}
+
+		// Load specific WhatsApp sender profiles if defined under "whatsapp_senders"
+		whatsappSenders := make(map[string]TwilioWhatsappConfig)
+		if sendersRaw, ok := rt.Config("whatsapp_senders").(map[string]any); ok {
+			for phone, details := range sendersRaw {
+				if detailMap, ok := details.(map[string]any); ok {
+					var wc TwilioWhatsappConfig
+					wc.AccountSID, _ = detailMap["twilio_sid"].(string)
+					wc.AuthToken, _ = detailMap["twilio_token"].(string)
+					wc.From, _ = detailMap["twilio_from"].(string)
+					if wc.From == "" {
+						wc.From = phone
+					}
+					whatsappSenders[phone] = wc
+				}
+			}
+		}
+
+		emailProvider := NewSMTPProvider(smtpCfg, smtpSenders)
+		whatsappProvider := NewTwilioWhatsappProvider(twilioCfg, whatsappSenders)
+		m.provider = NewMultiChannelRoutingProvider(emailProvider, whatsappProvider)
+	}
 
 	// Register workflows
 	_ = rt.Workflows().Register(mdk.Workflow{

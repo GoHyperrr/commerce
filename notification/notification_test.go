@@ -1,8 +1,12 @@
 package notification
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,4 +165,136 @@ func TestNotificationModule(t *testing.T) {
 		listAll, _ := repo.List(ctx, "")
 		if len(listAll) < 2 { t.Error("List with empty filter failed") }
 	})
+}
+
+func TestSMTPIntegration(t *testing.T) {
+	ctx := context.Background()
+
+	// Start mock SMTP server
+	addr, cleanup := startMockSMTPServer(t)
+	defer cleanup()
+
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("failed to split host/port: %v", err)
+	}
+	port, _ := strconv.Atoi(portStr)
+
+	// Configure SMTPProvider
+	defaultConfig := SMTPConfig{
+		Host:     host,
+		Port:     port,
+		Username: "default@mango.in",
+		Password: "default_password",
+		From:     "default@mango.in",
+	}
+
+	senders := map[string]SMTPConfig{
+		"support@mango.in": {
+			Host:     host,
+			Port:     port,
+			Username: "support@mango.in",
+			Password: "support_password",
+			From:     "support@mango.in",
+		},
+	}
+
+	provider := NewSMTPProvider(defaultConfig, senders)
+
+	t.Run("Send using default sender", func(t *testing.T) {
+		n := &Notification{
+			ID:        "n_default",
+			Recipient: "customer@example.com",
+			Channel:   ChannelEmail,
+			Subject:   "Welcome to Mango Farms",
+			Body:      "Hello World",
+		}
+		err := provider.Send(ctx, n)
+		if err != nil {
+			t.Fatalf("Send failed: %v", err)
+		}
+	})
+
+	t.Run("Send using support sender override", func(t *testing.T) {
+		n := &Notification{
+			ID:        "n_support",
+			Sender:    "support@mango.in",
+			Recipient: "customer@example.com",
+			Channel:   ChannelEmail,
+			Subject:   "Re: inquiry",
+			Body:      "Refund processed.",
+		}
+		err := provider.Send(ctx, n)
+		if err != nil {
+			t.Fatalf("Send failed: %v", err)
+		}
+	})
+}
+
+func startMockSMTPServer(t *testing.T) (string, func()) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start mock SMTP server: %v", err)
+	}
+
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				writer := bufio.NewWriter(c)
+
+				writeLine := func(line string) {
+					writer.WriteString(line + "\r\n")
+					writer.Flush()
+				}
+
+				writeLine("220 mock.smtp.server ESMTP Ready")
+
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "EHLO") || strings.HasPrefix(line, "HELO") {
+						writeLine("250-mock.smtp.server\r\n250 AUTH PLAIN")
+					} else if strings.HasPrefix(line, "AUTH PLAIN") {
+						writeLine("235 Authentication successful")
+					} else if strings.HasPrefix(line, "MAIL FROM:") {
+						writeLine("250 2.1.0 Ok")
+					} else if strings.HasPrefix(line, "RCPT TO:") {
+						writeLine("250 2.1.5 Ok")
+					} else if line == "DATA" {
+						writeLine("354 Start mail input; end with <CR><LF>.<CR><LF>")
+						for {
+							dataLine, err := reader.ReadString('\n')
+							if err != nil {
+								return
+							}
+							if strings.TrimSpace(dataLine) == "." {
+								break
+							}
+						}
+						writeLine("250 2.0.0 OK: queued")
+					} else if line == "QUIT" {
+						writeLine("221 2.0.0 Bye")
+						return
+					} else {
+						writeLine("500 Command unrecognized")
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	addr := l.Addr().String()
+	cleanup := func() {
+		l.Close()
+	}
+	return addr, cleanup
 }

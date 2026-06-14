@@ -19,6 +19,7 @@ func (m *Module) SendNotification(ctx context.Context, input any) (any, error) {
 		return nil, fmt.Errorf("missing workflow input")
 	}
 
+	sender, _ := workflowInput["sender"].(string)
 	recipient, _ := workflowInput["recipient"].(string)
 	if recipient == "" {
 		return nil, fmt.Errorf("missing recipient")
@@ -29,6 +30,7 @@ func (m *Module) SendNotification(ctx context.Context, input any) (any, error) {
 
 	n := &Notification{
 		ID:        "notif_" + uuid.New().String(),
+		Sender:    sender,
 		Recipient: recipient,
 		Channel:   NotificationChannel(channelStr),
 		Subject:   subject,
