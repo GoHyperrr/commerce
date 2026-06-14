@@ -1,0 +1,45 @@
+extend type Query {
+  getPaymentTransaction(id: ID!): PaymentTransaction
+  listOrderTransactions(orderId: ID!): [PaymentTransaction!]!
+  listActivePaymentProviders: [PaymentProviderInfo!]!
+}
+
+extend type Mutation {
+  # Create a payment intent/order at the gateway (e.g. Stripe PaymentIntent or Razorpay Order)
+  createPaymentIntent(orderId: ID!, provider: String!): PaymentIntent!
+
+  # Verify the payment signature or verification payload (e.g. Razorpay HMAC signature check)
+  verifyPayment(orderId: ID!, provider: String!, payload: Map!): PaymentVerificationResult!
+}
+
+type PaymentTransaction {
+  id: ID!
+  orderId: String!
+  provider: String!
+  providerTransactionId: String!
+  amount: Float!
+  currency: String!
+  status: String!
+  clientSecret: String
+  createdAt: Time!
+}
+
+type PaymentProviderInfo {
+  id: ID!
+  name: String!
+  enabled: Boolean!
+}
+
+type PaymentIntent {
+  providerTransactionId: String!
+  clientSecret: String
+  amount: Float!
+  currency: String!
+  status: String!
+}
+
+type PaymentVerificationResult {
+  orderId: String!
+  status: String!
+  message: String!
+}
